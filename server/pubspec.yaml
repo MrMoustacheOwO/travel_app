@@ -1,0 +1,12 @@
+name: travel_expenses_backend
+description: Local network backend for travel expenses auth and user session management
+publish_to: 'none'
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  crypto: ^3.0.7
+  shelf: ^1.4.2
+  shelf_router: ^1.1.5
+  sqlite3: ^2.6.0
