@@ -27,21 +27,27 @@ class ParticipantTile extends StatelessWidget {
               ? participant.name.substring(0, 1).toUpperCase()
               : '?'),
         ),
-        title: Row(
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Expanded(child: Text(participant.name)),
-            const SizedBox(width: 8),
+            Text(participant.name),
+            const SizedBox(height: 4),
             Chip(
               label: Text(participant.role.label),
               visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
           ],
         ),
-        subtitle: Text(
-          '${participant.contact.isNotEmpty ? '${participant.contact}\n' : ''}'
-          '${participant.status.label} · внесено ${amountPaid.toStringAsFixed(0)} ₽',
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (participant.contact.isNotEmpty) Text(participant.contact),
+            Text(participant.status.label),
+            Text('Внесено ${amountPaid.toStringAsFixed(0)} ₽'),
+          ],
         ),
-        isThreeLine: participant.contact.isNotEmpty,
         trailing: onDelete != null
             ? IconButton(
                 icon: const Icon(Icons.delete_outline),

@@ -6,7 +6,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
-import '../config/backend_config.dart';
 import '../providers/auth_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/trips_provider.dart';
@@ -22,18 +21,14 @@ class ProfileSettingsScreen extends StatefulWidget {
 class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
-  final _backendUrlController = TextEditingController();
   String? _photoPath;
   bool _loaded = false;
   bool _saving = false;
-  bool _savingBackendUrl = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      _backendUrlController.text = BackendConfig.baseUrl;
-
       final profileProvider = context.read<ProfileProvider>();
       await profileProvider.load();
       final profile = profileProvider.profile;
@@ -54,51 +49,42 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
   void dispose() {
     _nameController.dispose();
     _emailController.dispose();
-    _backendUrlController.dispose();
     super.dispose();
   }
 
   Future<void> _pickPhoto() async {
     final picker = ImagePicker();
-    final picked = await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
+    final picked =
+        await picker.pickImage(source: ImageSource.gallery, imageQuality: 85);
     if (picked == null) return;
     final docsDir = await getApplicationDocumentsDirectory();
-    final fileName = 'profile_${DateTime.now().millisecondsSinceEpoch}${p.extension(picked.path)}';
-    final savedFile = await File(picked.path).copy(p.join(docsDir.path, fileName));
+    final fileName =
+        'profile_${DateTime.now().millisecondsSinceEpoch}${p.extension(picked.path)}';
+    final savedFile =
+        await File(picked.path).copy(p.join(docsDir.path, fileName));
     setState(() => _photoPath = savedFile.path);
   }
 
   Future<void> _save() async {
     setState(() => _saving = true);
-    await context.read<ProfileProvider>().save(
-          name: _nameController.text.trim(),
-          email: _emailController.text.trim(),
-          photoPath: _photoPath,
-        );
-    setState(() => _saving = false);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Изменения сохранены')),
-    );
-  }
-
-  Future<void> _saveBackendUrl() async {
-    final url = _backendUrlController.text.trim();
-    if (url.isEmpty) {
+    try {
+      await context.read<ProfileProvider>().save(
+            name: _nameController.text.trim(),
+            email: _emailController.text.trim(),
+            photoPath: _photoPath,
+          );
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Введите адрес сервера')),
+        const SnackBar(content: Text('Изменения сохранены')),
       );
-      return;
+    } on Exception catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-
-    setState(() => _savingBackendUrl = true);
-    await BackendConfig.setBaseUrl(url);
-    setState(() => _savingBackendUrl = false);
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Сервер: ${BackendConfig.baseUrl}')),
-    );
   }
 
   @override
@@ -123,8 +109,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                       children: [
                         CircleAvatar(
                           radius: 48,
-                          backgroundImage:
-                              _photoPath != null ? FileImage(File(_photoPath!)) : null,
+                          backgroundImage: _photoPath != null
+                              ? FileImage(File(_photoPath!))
+                              : null,
                           child: _photoPath == null
                               ? const Icon(Icons.person, size: 48)
                               : null,
@@ -159,30 +146,6 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                Text('Сервер локальной сети',
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                TextField(
-                  controller: _backendUrlController,
-                  decoration: InputDecoration(
-                    labelText: 'URL backend',
-                    hintText: 'http://192.168.1.50:8080',
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      onPressed: _savingBackendUrl ? null : _saveBackendUrl,
-                      icon: const Icon(Icons.save_outlined),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Пример: http://192.168.1.50:8080',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-                const SizedBox(height: 24),
                 Text('Созданные поездки',
                     style: Theme.of(context).textTheme.titleMedium),
                 const SizedBox(height: 8),
@@ -200,7 +163,9 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                   onPressed: _saving ? null : _save,
                   child: _saving
                       ? const SizedBox(
-                          height: 20, width: 20, child: CircularProgressIndicator())
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator())
                       : const Text('Сохранить изменения'),
                 ),
                 const SizedBox(height: 12),

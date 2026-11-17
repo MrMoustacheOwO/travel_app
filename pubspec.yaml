@@ -1,5 +1,5 @@
 name: travel_expenses_app
-description: Приложение для учёта поездок, активностей, расходов и участников.
+description: Приложение для учета поездок, активностей, расходов и участников.
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -21,6 +21,8 @@ dependencies:
   http: ^1.2.2
   shared_preferences: ^2.5.3
   supabase_flutter: ^2.18.3
+  gotrue: ^2.27.3
+  connectivity_plus: ^6.1.3
 
 dev_dependencies:
   flutter_test:

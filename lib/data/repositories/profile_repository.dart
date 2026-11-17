@@ -11,7 +11,14 @@ abstract class ProfileRepository {
 
 class LocalProfileRepository implements ProfileRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
-  final LocalAuthRepository _authRepository = LocalAuthRepository();
+  final AuthRepository _authRepository;
+  final void Function()? _onChanged;
+
+  LocalProfileRepository({
+    AuthRepository? authRepository,
+    void Function()? onChanged,
+  })  : _authRepository = authRepository ?? LocalAuthRepository(),
+        _onChanged = onChanged;
 
   @override
   Future<UserProfile> getProfile() async {
@@ -55,6 +62,11 @@ class LocalProfileRepository implements ProfileRepository {
     final currentUser = await _authRepository.getCurrentUser();
     if (currentUser == null) return;
 
+    final normalizedEmail = profile.email.trim().toLowerCase();
+    if (normalizedEmail != currentUser.email.toLowerCase()) {
+      await _authRepository.updateEmail(normalizedEmail);
+    }
+
     final db = await _dbHelper.database;
     await db.insert(
       'profile',
@@ -64,6 +76,7 @@ class LocalProfileRepository implements ProfileRepository {
         'name': profile.name,
         'email': profile.email,
         'photo_path': profile.photoPath,
+        'synced': 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -78,5 +91,6 @@ class LocalProfileRepository implements ProfileRepository {
       where: 'id = ?',
       whereArgs: [currentUser.id],
     );
+    _onChanged?.call();
   }
 }

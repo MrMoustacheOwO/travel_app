@@ -36,9 +36,17 @@ abstract class AuthRepository {
 
   Future<void> logout();
 
+  Future<void> updateEmail(String email) async {
+    throw const AuthException('Изменение email не поддерживается');
+  }
+
   Future<bool> isAuthenticated();
 
   Future<UserProfile?> getCurrentUser();
+}
+
+abstract interface class AuthStateRepository {
+  Stream<UserProfile?> get authStateChanges;
 }
 
 class ApiAuthRepository implements AuthRepository {
@@ -55,6 +63,13 @@ class ApiAuthRepository implements AuthRepository {
 
   static const String _tokenKey = 'travel_app_auth_token';
   static const Duration _requestTimeout = Duration(seconds: 12);
+
+  @override
+  Future<void> updateEmail(String email) async {
+    throw const AuthException(
+      'Изменение email для аккаунта backend не поддерживается',
+    );
+  }
 
   @override
   Future<UserProfile> register({
@@ -147,7 +162,7 @@ class ApiAuthRepository implements AuthRepository {
           fallbackMessage: 'Ошибка выхода',
         );
       } on AuthException {
-        // Игнорируем ошибку сервера при выходе: локальная сессия в приложении всё равно должна сброситься.
+        // Игнорируем ошибку сервера при выходе: локальная сессия в приложении все равно должна сброситься.
       }
     }
     await prefs.remove(_tokenKey);
@@ -254,6 +269,43 @@ class LocalAuthRepository implements AuthRepository {
   final Random _random = Random.secure();
 
   @override
+  Future<void> updateEmail(String email) async {
+    final user = await getCurrentUser();
+    if (user == null) return;
+    final normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail.contains('@')) {
+      throw const AuthException('Некорректный адрес электронной почты');
+    }
+
+    final db = await _dbHelper.database;
+    final existingUsers = await db.query(
+      'users',
+      columns: ['id'],
+      where: 'LOWER(email) = ? AND id != ?',
+      whereArgs: [normalizedEmail, user.id],
+      limit: 1,
+    );
+    if (existingUsers.isNotEmpty) {
+      throw const AuthException(
+        'Пользователь с таким email уже зарегистрирован',
+      );
+    }
+    final now = DateTime.now().toIso8601String();
+    await db.update(
+      'users',
+      {'email': normalizedEmail, 'updated_at': now},
+      where: 'id = ?',
+      whereArgs: [user.id],
+    );
+    await db.update(
+      'profile',
+      {'email': normalizedEmail},
+      where: 'user_id = ?',
+      whereArgs: [user.id],
+    );
+  }
+
+  @override
   Future<UserProfile> register({
     required String name,
     required String email,
@@ -279,7 +331,8 @@ class LocalAuthRepository implements AuthRepository {
       whereArgs: [normalizedEmail],
     );
     if (existingUsers.isNotEmpty) {
-      throw const AuthException('Пользователь с таким email уже зарегистрирован');
+      throw const AuthException(
+          'Пользователь с таким email уже зарегистрирован');
     }
 
     final salt = _generateSalt();
@@ -311,7 +364,8 @@ class LocalAuthRepository implements AuthRepository {
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
-    return UserProfile(id: userId, name: normalizedName, email: normalizedEmail);
+    return UserProfile(
+        id: userId, name: normalizedName, email: normalizedEmail);
   }
 
   @override

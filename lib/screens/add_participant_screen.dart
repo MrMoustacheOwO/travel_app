@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/participant.dart';
+import '../providers/auth_provider.dart';
 import '../providers/participants_provider.dart';
 
 class AddParticipantScreen extends StatefulWidget {
   final String tripId;
   final Participant? participant;
 
-  const AddParticipantScreen({super.key, required this.tripId, this.participant});
+  const AddParticipantScreen(
+      {super.key, required this.tripId, this.participant});
 
   @override
   State<AddParticipantScreen> createState() => _AddParticipantScreenState();
@@ -30,12 +32,11 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
     super.initState();
     final participant = widget.participant;
     _nameController = TextEditingController(text: participant?.name ?? '');
-    _contactController = TextEditingController(text: participant?.contact ?? '');
+    _contactController =
+        TextEditingController(text: participant?.contact ?? '');
     _notesController = TextEditingController(text: participant?.notes ?? '');
     _status = participant?.status ?? ParticipationStatus.confirmed;
-    final existing = context.read<ParticipantsProvider>().participants;
-    _role = participant?.role ??
-        (existing.isEmpty ? TripParticipantRole.organizer : TripParticipantRole.participant);
+    _role = participant?.role ?? TripParticipantRole.participant;
   }
 
   @override
@@ -50,19 +51,25 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     final provider = context.read<ParticipantsProvider>();
+    final user = context.read<AuthProvider>().currentUser;
+    final contact = _contactController.text.trim();
+    final linkedUserId = widget.participant?.userId ??
+        (contact.toLowerCase() == user?.email.toLowerCase() ? user?.id : null);
     if (_isEditing) {
       final participant = widget.participant!
         ..name = _nameController.text.trim()
         ..contact = _contactController.text.trim()
         ..notes = _notesController.text.trim()
         ..status = _status
-        ..role = _role;
+        ..role = _role
+        ..userId = linkedUserId;
       await provider.updateParticipant(participant);
     } else {
       await provider.addParticipant(
         name: _nameController.text.trim(),
         contact: _contactController.text.trim(),
         notes: _notesController.text.trim(),
+        userId: linkedUserId,
         status: _status,
         role: _role,
       );
@@ -92,8 +99,9 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
                 labelText: 'Имя участника',
                 border: OutlineInputBorder(),
               ),
-              validator: (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Введите имя участника' : null,
+              validator: (v) => (v == null || v.trim().isEmpty)
+                  ? 'Введите имя участника'
+                  : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -151,7 +159,9 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
               child: _saving
                   ? const SizedBox(
                       height: 20, width: 20, child: CircularProgressIndicator())
-                  : Text(_isEditing ? 'Сохранить изменения' : 'Добавить участника'),
+                  : Text(_isEditing
+                      ? 'Сохранить изменения'
+                      : 'Добавить участника'),
             ),
           ],
         ),

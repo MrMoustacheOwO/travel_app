@@ -16,12 +16,13 @@ extension TripStatusLabel on TripStatus {
 /// Модель поездки.
 ///
 /// Поле [synced] и [remoteId] заранее подготовлены для будущей
-/// синхронизации с сервером/БД: локальная запись создаётся с
+/// синхронизации с сервером/БД: локальная запись создается с
 /// уникальным [id] (uuid), а [remoteId] будет заполнен после того,
 /// как объект будет создан на сервере.
 class Trip {
   final String id;
   final String? userId;
+  final String? organizerId;
   String name;
   DateTime startDate;
   DateTime endDate;
@@ -33,6 +34,7 @@ class Trip {
   Trip({
     required this.id,
     this.userId,
+    this.organizerId,
     required this.name,
     required this.startDate,
     required this.endDate,
@@ -57,6 +59,7 @@ class Trip {
     return {
       'id': id,
       'user_id': userId,
+      'organizer_id': organizerId,
       'name': name,
       'start_date': startDate.toIso8601String(),
       'end_date': endDate.toIso8601String(),
@@ -71,6 +74,7 @@ class Trip {
     return Trip(
       id: map['id'] as String,
       userId: map['user_id'] as String?,
+      organizerId: map['organizer_id'] as String? ?? map['user_id'] as String?,
       name: map['name'] as String,
       startDate: DateTime.parse(map['start_date'] as String),
       endDate: DateTime.parse(map['end_date'] as String),

@@ -4,7 +4,6 @@ import 'package:uuid/uuid.dart';
 import '../data/repositories/participant_repository.dart';
 import '../models/participant.dart';
 
-
 class ParticipantsProvider extends ChangeNotifier {
   final ParticipantRepository _repository;
   final _uuid = const Uuid();
@@ -31,21 +30,20 @@ class ParticipantsProvider extends ChangeNotifier {
     required String name,
     String contact = '',
     String notes = '',
+    String? userId,
     ParticipationStatus status = ParticipationStatus.confirmed,
     TripParticipantRole role = TripParticipantRole.participant,
   }) async {
     if (_tripId == null) return;
-    final finalRole = _participants.isEmpty
-        ? TripParticipantRole.organizer
-        : role;
     final participant = Participant(
       id: _uuid.v4(),
       tripId: _tripId!,
       name: name,
+      userId: userId,
       contact: contact,
       notes: notes,
       status: status,
-      role: finalRole,
+      role: role,
     );
     await _repository.create(participant);
     await loadForTrip(_tripId!);

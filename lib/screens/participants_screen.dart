@@ -4,11 +4,14 @@ import 'package:provider/provider.dart';
 import '../models/participant.dart';
 import '../models/trip.dart';
 import '../models/trip_chat.dart';
+import '../providers/auth_provider.dart';
 import '../providers/expenses_provider.dart';
 import '../providers/participants_provider.dart';
+import '../utils/trip_access.dart';
 import '../widgets/confirm_delete.dart';
 import '../widgets/participant_tile.dart';
 import 'add_participant_screen.dart';
+import 'profile_settings_screen.dart';
 
 class ParticipantsScreen extends StatefulWidget {
   final Trip trip;
@@ -19,16 +22,27 @@ class ParticipantsScreen extends StatefulWidget {
   State<ParticipantsScreen> createState() => _ParticipantsScreenState();
 }
 
-class _ParticipantsScreenState extends State<ParticipantsScreen> {
+class _ParticipantsScreenState extends State<ParticipantsScreen>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _chatController = TextEditingController();
+  late final TabController _tabController;
+  int _selectedTabIndex = 0;
+  _ParticipantSort _participantSort = _ParticipantSort.name;
 
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 2, vsync: this)
+      ..addListener(_onTabChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ParticipantsProvider>().loadForTrip(widget.trip.id);
       context.read<ExpensesProvider>().loadForTrip(widget.trip.id);
     });
+  }
+
+  void _onTabChanged() {
+    if (_selectedTabIndex == _tabController.index) return;
+    setState(() => _selectedTabIndex = _tabController.index);
   }
 
   @override
@@ -43,12 +57,10 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
   @override
   void dispose() {
     _chatController.dispose();
+    _tabController
+      ..removeListener(_onTabChanged)
+      ..dispose();
     super.dispose();
-  }
-
-  bool _isOrganizer(List<Participant> participants) {
-    if (participants.isEmpty) return true;
-    return participants.first.role == TripParticipantRole.organizer;
   }
 
   void _sendChatMessage() {
@@ -64,57 +76,168 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
     final participantsProvider = context.watch<ParticipantsProvider>();
     final expensesProvider = context.watch<ExpensesProvider>();
     final participants = participantsProvider.participants;
-    final isOrganizer = _isOrganizer(participants);
+    final currentUser = context.watch<AuthProvider>().currentUser;
+    final organizerId = widget.trip.organizerId ?? widget.trip.userId;
+    final isOrganizer = isTripOrganizer(widget.trip, currentUser?.id);
+    final selfParticipantId = participants
+            .where((participant) =>
+                participant.userId == currentUser?.id ||
+                (isOrganizer &&
+                    participant.role == TripParticipantRole.organizer) ||
+                (participant.contact.isNotEmpty &&
+                    participant.contact.trim().toLowerCase() ==
+                        currentUser?.email.trim().toLowerCase()))
+            .map((participant) => participant.id)
+            .firstOrNull ??
+        (isOrganizer ? organizerId : null);
+    final displayedParticipants = participants.map((participant) {
+      final isCurrentUser = participant.userId == currentUser?.id ||
+          (participant.contact.isNotEmpty &&
+              currentUser != null &&
+              participant.contact.toLowerCase() ==
+                  currentUser.email.toLowerCase()) ||
+          (isOrganizer && participant.role == TripParticipantRole.organizer);
+      return Participant(
+        id: participant.id,
+        tripId: participant.tripId,
+        userId: participant.userId,
+        name: isCurrentUser ? 'Вы' : participant.name,
+        contact: participant.contact,
+        notes: participant.notes,
+        status: participant.status,
+        role: participant.userId == organizerId
+            ? TripParticipantRole.organizer
+            : participant.role,
+        synced: participant.synced,
+        remoteId: participant.remoteId,
+      );
+    }).toList();
+    if (organizerId != null &&
+        !displayedParticipants.any((participant) =>
+            participant.userId == organizerId ||
+            participant.id == organizerId ||
+            (isOrganizer &&
+                participant.role == TripParticipantRole.organizer))) {
+      displayedParticipants.insert(
+        0,
+        Participant(
+          id: organizerId,
+          tripId: widget.trip.id,
+          userId: organizerId,
+          name: organizerId == currentUser?.id ? 'Вы' : 'Организатор',
+          contact: organizerId == currentUser?.id ? currentUser!.email : '',
+          role: TripParticipantRole.organizer,
+        ),
+      );
+    }
+    displayedParticipants.sort((a, b) {
+      final aIsSelf = a.id == selfParticipantId;
+      final bIsSelf = b.id == selfParticipantId;
+      if (aIsSelf != bIsSelf) return aIsSelf ? -1 : 1;
+
+      switch (_participantSort) {
+        case _ParticipantSort.name:
+          return a.name.compareTo(b.name);
+        case _ParticipantSort.status:
+          return a.status.index.compareTo(b.status.index);
+        case _ParticipantSort.role:
+          return a.role.index.compareTo(b.role.index);
+      }
+    });
     final messages = TripChatStore.messagesFor(widget.trip.id);
 
-    final participantsList = participantsProvider.loading
-        ? const Center(child: CircularProgressIndicator())
-        : participants.isEmpty
-            ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: Text(
-                    'В поездке пока нет участников.\nНажмите «+», чтобы добавить.',
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.only(top: 8, bottom: 80),
-                itemCount: participants.length,
-                itemBuilder: (context, index) {
-                  final participant = participants[index];
-                  return ParticipantTile(
-                    participant: participant,
-                    amountPaid: expensesProvider.totalPaidByParticipant(participant.id),
-                    onTap: isOrganizer
-                        ? () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => AddParticipantScreen(
-                                  tripId: widget.trip.id,
-                                  participant: participant,
-                                ),
-                              ),
-                            );
-                          }
-                        : null,
-                    onDelete: isOrganizer
-                        ? () async {
-                            final ok = await confirmDelete(
-                              context,
-                              title: 'Удалить участника?',
-                              content: 'Участник «${participant.name}» будет удалён.',
-                            );
-                            if (!ok || !context.mounted) return;
-                            await context
-                                .read<ParticipantsProvider>()
-                                .deleteParticipant(participant.id);
-                          }
-                        : null,
-                  );
-                },
-              );
+    final participantsList = Column(
+      children: [
+        Align(
+          alignment: Alignment.centerRight,
+          child: PopupMenuButton<_ParticipantSort>(
+            tooltip: 'Сортировка участников',
+            icon: const Icon(Icons.sort),
+            initialValue: _participantSort,
+            onSelected: (sort) => setState(() => _participantSort = sort),
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: _ParticipantSort.name,
+                child: Text('По имени'),
+              ),
+              PopupMenuItem(
+                value: _ParticipantSort.status,
+                child: Text('По статусу'),
+              ),
+              PopupMenuItem(
+                value: _ParticipantSort.role,
+                child: Text('По роли'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: participantsProvider.loading
+              ? const Center(child: CircularProgressIndicator())
+              : displayedParticipants.isEmpty
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text(
+                          'В поездке пока нет участников.\nНажмите «+», чтобы добавить.',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.only(top: 4, bottom: 80),
+                      itemCount: displayedParticipants.length,
+                      itemBuilder: (context, index) {
+                        final participant = displayedParticipants[index];
+                        final isOrganizerEntry =
+                            participant.id == organizerId ||
+                                participant.userId == organizerId;
+                        final isSelf = participant.id == selfParticipantId;
+                        return ParticipantTile(
+                          participant: participant,
+                          amountPaid: expensesProvider
+                              .totalPaidByParticipant(participant.id),
+                          onTap: isSelf
+                              ? () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) =>
+                                          const ProfileSettingsScreen(),
+                                    ),
+                                  );
+                                }
+                              : isOrganizer && !isOrganizerEntry
+                                  ? () {
+                                      Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => AddParticipantScreen(
+                                            tripId: widget.trip.id,
+                                            participant: participant,
+                                          ),
+                                        ),
+                                      );
+                                    }
+                                  : null,
+                          onDelete: isOrganizer && !isOrganizerEntry
+                              ? () async {
+                                  final ok = await confirmDelete(
+                                    context,
+                                    title: 'Удалить участника?',
+                                    content:
+                                        'Участник «${participant.name}» будет удален.',
+                                  );
+                                  if (!ok || !context.mounted) return;
+                                  await context
+                                      .read<ParticipantsProvider>()
+                                      .deleteParticipant(participant.id);
+                                }
+                              : null,
+                        );
+                      },
+                    ),
+        ),
+      ],
+    );
 
     final chatView = Column(
       children: [
@@ -183,34 +306,39 @@ class _ParticipantsScreenState extends State<ParticipantsScreen> {
       ],
     );
 
-    return DefaultTabController(
-      length: 2,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('Участники поездки'),
-          bottom: const TabBar(
-            tabs: [
+    return Scaffold(
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(48),
+        child: Material(
+          color: Theme.of(context).colorScheme.surface,
+          child: TabBar(
+            controller: _tabController,
+            tabs: const [
               Tab(text: 'Участники'),
               Tab(text: 'Чат'),
             ],
           ),
         ),
-        body: TabBarView(
-          children: [participantsList, chatView],
-        ),
-        floatingActionButton: isOrganizer
-            ? FloatingActionButton(
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => AddParticipantScreen(tripId: widget.trip.id),
-                    ),
-                  );
-                },
-                child: const Icon(Icons.add),
-              )
-            : null,
       ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [participantsList, chatView],
+      ),
+      floatingActionButton: isOrganizer && _selectedTabIndex == 0
+          ? FloatingActionButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        AddParticipantScreen(tripId: widget.trip.id),
+                  ),
+                );
+              },
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 }
+
+enum _ParticipantSort { name, status, role }

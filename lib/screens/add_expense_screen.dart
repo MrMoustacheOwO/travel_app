@@ -6,8 +6,11 @@ import '../models/expense.dart';
 import '../models/spending_category.dart';
 import '../models/ticket_info.dart';
 import '../providers/activities_provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/expenses_provider.dart';
 import '../providers/participants_provider.dart';
+import '../providers/trips_provider.dart';
+import '../utils/trip_access.dart';
 import '../widgets/category_dropdown.dart';
 import '../widgets/participant_multi_select.dart';
 import '../widgets/ticket_form.dart';
@@ -128,8 +131,27 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
       return;
     }
 
+    final user = context.read<AuthProvider>().currentUser;
+    final participants = context.read<ParticipantsProvider>().participants;
+    final self = participantForUser(
+      participants,
+      userId: user?.id,
+      email: user?.email,
+    );
+    final isOrganizer = isTripOrganizer(
+      context.read<TripsProvider>().tripById(widget.tripId),
+      user?.id,
+    );
+    if (!isOrganizer && self == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Ваш аккаунт не связан с участником поездки.')),
+      );
+      return;
+    }
     setState(() => _saving = true);
-    final ticket = _category == SpendingCategory.tickets ? _ticket : TicketInfo();
+    final ticket =
+        _category == SpendingCategory.tickets ? _ticket : TicketInfo();
     final provider = context.read<ExpensesProvider>();
 
     if (_isEditing) {
@@ -137,26 +159,29 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         ..activityId = _activityId
         ..category = _category
         ..name = _nameController.text.trim()
-        ..amount = double.tryParse(_amountController.text.replaceAll(',', '.')) ?? 0
+        ..amount =
+            double.tryParse(_amountController.text.replaceAll(',', '.')) ?? 0
         ..date = _date
         ..comment = _commentController.text.trim()
-        ..paidByParticipantId = _paidByParticipantId
-        ..participantIds = _participantIds.toList()
+        ..paidByParticipantId = isOrganizer ? _paidByParticipantId : self!.id
+        ..participantIds = isOrganizer ? _participantIds.toList() : [self!.id]
         ..ticket = ticket;
       await provider.updateExpense(expense);
     } else {
-      final confirmation = _paidByParticipantId == null
+      final paidByParticipantId = isOrganizer ? _paidByParticipantId : self!.id;
+      final confirmation = paidByParticipantId == null
           ? ExpenseConfirmation.confirmed
           : ExpenseConfirmation.pending;
       await provider.addExpense(
         activityId: _activityId,
         category: _category,
         name: _nameController.text.trim(),
-        amount: double.tryParse(_amountController.text.replaceAll(',', '.')) ?? 0,
+        amount:
+            double.tryParse(_amountController.text.replaceAll(',', '.')) ?? 0,
         date: _date,
         comment: _commentController.text.trim(),
-        paidByParticipantId: _paidByParticipantId,
-        participantIds: _participantIds.toList(),
+        paidByParticipantId: paidByParticipantId,
+        participantIds: isOrganizer ? _participantIds.toList() : [self!.id],
         ticket: ticket,
         confirmation: confirmation,
       );
@@ -170,6 +195,24 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
   Widget build(BuildContext context) {
     final activities = context.watch<ActivitiesProvider>().activities;
     final participants = context.watch<ParticipantsProvider>().participants;
+    final user = context.watch<AuthProvider>().currentUser;
+    final self = participantForUser(
+      participants,
+      userId: user?.id,
+      email: user?.email,
+    );
+    final isOrganizer = isTripOrganizer(
+      context.watch<TripsProvider>().tripById(widget.tripId),
+      user?.id,
+    );
+    final readOnly = widget.readOnly || (!isOrganizer && self == null);
+    final visibleActivities = activities
+        .where((activity) => isRecordVisibleToUser(
+              isOrganizer: isOrganizer,
+              participantIds: activity.participantIds,
+              currentParticipantId: self?.id,
+            ))
+        .toList();
     final df = DateFormat('dd.MM.yyyy');
 
     return Scaffold(
@@ -178,14 +221,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         title: Text(
           _isEditing ? 'Редактирование расхода' : 'Форма добавления расхода',
         ),
-        centerTitle: true,
       ),
       body: Form(
         key: _formKey,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            if (widget.readOnly)
+            if (readOnly)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(12),
@@ -194,17 +236,18 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Text(
-                  'Просмотр справочной информации: редактирование для участника без роли организатора недоступно.',
+                  'Просмотр справочной информации: редактирование недоступно.',
                   textAlign: TextAlign.center,
                 ),
               ),
             CategoryDropdown(
               value: _category,
-              onChanged: widget.readOnly ? (_) {} : (c) => setState(() => _category = c),
+              onChanged:
+                  readOnly ? (_) {} : (c) => setState(() => _category = c),
             ),
             const SizedBox(height: 16),
             TextFormField(
-              enabled: !widget.readOnly,
+              enabled: !readOnly,
               controller: _nameController,
               decoration: const InputDecoration(
                 labelText: 'Название расхода',
@@ -215,25 +258,33 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String?>(
-              key: ValueKey('${_activityId}_${activities.length}'),
-              initialValue:
-                  activities.any((a) => a.id == _activityId) ? _activityId : null,
+              key: ValueKey('${_activityId}_${visibleActivities.length}'),
+              initialValue: visibleActivities.any((a) => a.id == _activityId)
+                  ? _activityId
+                  : null,
               decoration: const InputDecoration(
                 labelText: 'Связанная активность (необязательно)',
                 border: OutlineInputBorder(),
               ),
               items: [
-                const DropdownMenuItem<String?>(value: null, child: Text('Не выбрано')),
-                for (final a in activities)
-                  DropdownMenuItem<String?>(value: a.id, child: Text(a.name)),
+                const DropdownMenuItem<String?>(
+                  value: null,
+                  child: Text('Не выбрано'),
+                ),
+                for (final activity in visibleActivities)
+                  DropdownMenuItem<String?>(
+                    value: activity.id,
+                    child: Text(activity.name),
+                  ),
               ],
-              onChanged: widget.readOnly ? null : _onActivityChanged,
+              onChanged: readOnly ? null : _onActivityChanged,
             ),
             const SizedBox(height: 16),
             TextFormField(
-              enabled: !widget.readOnly,
+              enabled: !readOnly,
               controller: _amountController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
                 labelText: 'Сумма расхода',
                 border: OutlineInputBorder(),
@@ -247,49 +298,59 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             ),
             const SizedBox(height: 16),
             OutlinedButton.icon(
-              onPressed: widget.readOnly ? null : _pickDate,
+              onPressed: readOnly ? null : _pickDate,
               icon: const Icon(Icons.calendar_today),
               label: Text('Дата расхода: ${df.format(_date)}'),
             ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String?>(
-              key: ValueKey('${_paidByParticipantId}_${participants.length}'),
-              initialValue: participants.any((p) => p.id == _paidByParticipantId)
-                  ? _paidByParticipantId
-                  : null,
-              decoration: const InputDecoration(
-                labelText: 'Кто оплатил (необязательно)',
-                border: OutlineInputBorder(),
-                helperText:
-                    'Если выбран участник, расход попадёт в список на подтверждение',
+            if (isOrganizer) ...[
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String?>(
+                key: ValueKey('${_paidByParticipantId}_${participants.length}'),
+                initialValue:
+                    participants.any((p) => p.id == _paidByParticipantId)
+                        ? _paidByParticipantId
+                        : null,
+                decoration: const InputDecoration(
+                  labelText: 'Кто оплатил (необязательно)',
+                  border: OutlineInputBorder(),
+                  helperText:
+                      'Если выбран участник, расход попадет в список на подтверждение',
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Я (организатор)'),
+                  ),
+                  for (final participant in participants)
+                    DropdownMenuItem<String?>(
+                      value: participant.id,
+                      child: Text(participant.name),
+                    ),
+                ],
+                onChanged: readOnly
+                    ? null
+                    : (value) => setState(() => _paidByParticipantId = value),
               ),
-              items: [
-                const DropdownMenuItem<String?>(value: null, child: Text('Я (организатор)')),
-                for (final p in participants)
-                  DropdownMenuItem<String?>(value: p.id, child: Text(p.name)),
-              ],
-              onChanged: widget.readOnly
-                  ? null
-                  : (v) => setState(() => _paidByParticipantId = v),
-            ),
-            const SizedBox(height: 16),
-            ParticipantMultiSelect(
-              participants: participants,
-              selectedIds: _participantIds,
-              onChanged: widget.readOnly
-                  ? (_) {}
-                  : (ids) => setState(() => _participantIds = ids),
-            ),
+              const SizedBox(height: 16),
+              ParticipantMultiSelect(
+                participants: participants,
+                selectedIds: _participantIds,
+                onChanged: readOnly
+                    ? (_) {}
+                    : (ids) => setState(() => _participantIds = ids),
+              ),
+            ],
             if (_category == SpendingCategory.tickets) ...[
               const SizedBox(height: 16),
               TicketForm(
                 ticket: _ticket,
-                onChanged: (t) => setState(() => _ticket = t),
+                onChanged:
+                    readOnly ? (_) {} : (t) => setState(() => _ticket = t),
               ),
             ],
             const SizedBox(height: 16),
             TextFormField(
-              enabled: !widget.readOnly,
+              enabled: !readOnly,
               controller: _commentController,
               maxLines: 2,
               decoration: const InputDecoration(
@@ -299,7 +360,7 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
             ),
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: widget.readOnly || _saving ? null : _save,
+              onPressed: readOnly || _saving ? null : _save,
               child: _saving
                   ? const SizedBox(
                       height: 20,
@@ -307,9 +368,11 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
                       child: CircularProgressIndicator(),
                     )
                   : Text(
-                      widget.readOnly
+                      readOnly
                           ? 'Только просмотр'
-                          : (_isEditing ? 'Сохранить изменения' : 'Сохранить расход'),
+                          : (_isEditing
+                              ? 'Сохранить изменения'
+                              : 'Сохранить расход'),
                     ),
             ),
           ],

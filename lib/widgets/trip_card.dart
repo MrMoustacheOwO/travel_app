@@ -5,13 +5,15 @@ import '../models/trip.dart';
 
 class TripCard extends StatelessWidget {
   final Trip trip;
+  final int participantCount;
   final VoidCallback onTap;
   final VoidCallback? onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
 
   const TripCard({
     super.key,
     required this.trip,
+    required this.participantCount,
     required this.onTap,
     this.onEdit,
     required this.onDelete,
@@ -51,9 +53,10 @@ class TripCard extends StatelessWidget {
                             .titleMedium
                             ?.copyWith(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    Text('${df.format(trip.startDate)} — ${df.format(trip.endDate)}'),
+                    Text(
+                        '${df.format(trip.startDate)} — ${df.format(trip.endDate)}'),
                     const SizedBox(height: 4),
-                    Text('Участников: ${trip.peopleCount}'),
+                    Text('Участников: $participantCount'),
                     const SizedBox(height: 6),
                     Chip(
                       label: Text(trip.status.label),
@@ -69,10 +72,11 @@ class TripCard extends StatelessWidget {
                   icon: const Icon(Icons.edit_outlined),
                   onPressed: onEdit,
                 ),
-              IconButton(
-                icon: const Icon(Icons.delete_outline),
-                onPressed: onDelete,
-              ),
+              if (onDelete != null)
+                IconButton(
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: onDelete,
+                ),
             ],
           ),
         ),

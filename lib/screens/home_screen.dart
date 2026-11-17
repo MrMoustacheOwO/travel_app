@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/trip.dart';
+import '../providers/auth_provider.dart';
 import '../providers/trips_provider.dart';
 import '../widgets/confirm_delete.dart';
+import '../widgets/data_loading_widget.dart';
 import '../widgets/trip_card.dart';
 import 'add_trip_screen.dart';
 import 'profile_settings_screen.dart';
@@ -29,6 +31,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     final tripsProvider = context.watch<TripsProvider>();
+    final userId = context.watch<AuthProvider>().currentUser?.id;
 
     return Scaffold(
       appBar: AppBar(
@@ -43,7 +46,9 @@ class _HomeScreenState extends State<HomeScreen> {
         title: const Text('Мои поездки'),
       ),
       body: tripsProvider.loading
-          ? const Center(child: CircularProgressIndicator())
+          ? DataLoadingWidget(
+              onRetry: () => context.read<TripsProvider>().loadTrips(),
+            )
           : tripsProvider.trips.isEmpty
               ? const Center(
                   child: Padding(
@@ -59,26 +64,36 @@ class _HomeScreenState extends State<HomeScreen> {
                   itemCount: tripsProvider.trips.length,
                   itemBuilder: (context, index) {
                     final trip = tripsProvider.trips[index];
+                    final canManage =
+                        (trip.organizerId ?? trip.userId) == userId;
                     return TripCard(
                       trip: trip,
+                      participantCount:
+                          tripsProvider.participantCountFor(trip.id),
                       onTap: () => widget.onTripSelected(trip),
-                      onEdit: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => AddTripScreen(trip: trip),
-                          ),
-                        );
-                      },
-                      onDelete: () async {
-                        final ok = await confirmDelete(
-                          context,
-                          title: 'Удалить поездку?',
-                          content:
-                              'Поездка «${trip.name}» и все данные по ней будут удалены.',
-                        );
-                        if (!ok || !context.mounted) return;
-                        await context.read<TripsProvider>().deleteTrip(trip.id);
-                      },
+                      onEdit: canManage
+                          ? () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => AddTripScreen(trip: trip),
+                                ),
+                              );
+                            }
+                          : null,
+                      onDelete: canManage
+                          ? () async {
+                              final ok = await confirmDelete(
+                                context,
+                                title: 'Удалить поездку?',
+                                content:
+                                    'Поездка «${trip.name}» и все данные по ней будут удалены.',
+                              );
+                              if (!ok || !context.mounted) return;
+                              await context
+                                  .read<TripsProvider>()
+                                  .deleteTrip(trip.id);
+                            }
+                          : null,
                     );
                   },
                 ),

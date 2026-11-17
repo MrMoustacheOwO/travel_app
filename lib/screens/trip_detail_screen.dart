@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
-import '../models/participant.dart';
 import '../models/spending_category.dart';
 import '../models/trip.dart';
 import '../providers/activities_provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/expenses_provider.dart';
 import '../providers/participants_provider.dart';
 import '../widgets/activity_tile.dart';
 import '../widgets/category_filter_chips.dart';
 import '../widgets/confirm_delete.dart';
+import '../utils/trip_access.dart';
 import 'add_activity_screen.dart';
 
 class TripDetailScreen extends StatefulWidget {
@@ -46,22 +47,28 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
     }
   }
 
-  bool _isOrganizer(List<Participant> participants) {
-    if (participants.isEmpty) return true;
-    return participants.first.role == TripParticipantRole.organizer;
-  }
-
   @override
   Widget build(BuildContext context) {
     final activitiesProvider = context.watch<ActivitiesProvider>();
     final participants = context.watch<ParticipantsProvider>().participants;
-    final isOrganizer = _isOrganizer(participants);
+    final user = context.watch<AuthProvider>().currentUser;
+    final self = participantForUser(
+      participants,
+      userId: user?.id,
+      email: user?.email,
+    );
+    final isOrganizer = isTripOrganizer(widget.trip, user?.id);
     final df = DateFormat('dd.MM.yyyy');
     final activities = activitiesProvider.activities
         .where((activity) =>
-          (_selectedCategories.isEmpty ||
-            _selectedCategories.contains(activity.category)) &&
-          (!_mainActivitiesOnly || activity.isMain))
+            isRecordVisibleToUser(
+              isOrganizer: isOrganizer,
+              participantIds: activity.participantIds,
+              currentParticipantId: self?.id,
+            ) &&
+            (_selectedCategories.isEmpty ||
+                _selectedCategories.contains(activity.category)) &&
+            (!_mainActivitiesOnly || activity.isMain))
         .toList();
 
     return Scaffold(
@@ -126,12 +133,15 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                                     builder: (_) => AddActivityScreen(
                                       tripId: widget.trip.id,
                                       activity: activity,
-                                      readOnly: !isOrganizer,
+                                      readOnly: !isOrganizer &&
+                                          !activity.participantIds
+                                              .contains(self?.id),
                                     ),
                                   ),
                                 );
                               },
-                              onDelete: isOrganizer
+                              onDelete: isOrganizer ||
+                                      activity.participantIds.contains(self?.id)
                                   ? () async {
                                       final ok = await confirmDelete(
                                         context,
@@ -155,7 +165,7 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                 ),
               ],
             ),
-      floatingActionButton: isOrganizer
+      floatingActionButton: isOrganizer || self != null
           ? FloatingActionButton(
               onPressed: () {
                 Navigator.of(context).push(

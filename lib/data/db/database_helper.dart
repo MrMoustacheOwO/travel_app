@@ -1,9 +1,9 @@
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// Обёртка над локальной SQLite базой данных.
+/// Обертка над локальной SQLite базой данных.
 ///
-/// Вся работа с данными в приложении идёт через репозитории
+/// Вся работа с данными в приложении идет через репозитории
 /// (см. lib/data/repositories), а не напрямую через этот класс —
 /// это позволяет в будущем заменить локальную реализацию репозитория
 /// на реализацию, которая обращается к серверному REST API / БД,
@@ -13,7 +13,7 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
   static const _dbName = 'travel_expenses.db';
-  static const _dbVersion = 5;
+  static const _dbVersion = 9;
 
   Database? _database;
 
@@ -67,6 +67,7 @@ class DatabaseHelper {
       CREATE TABLE trips (
         id TEXT PRIMARY KEY,
         user_id TEXT,
+        organizer_id TEXT,
         name TEXT NOT NULL,
         start_date TEXT NOT NULL,
         end_date TEXT NOT NULL,
@@ -82,6 +83,7 @@ class DatabaseHelper {
       CREATE TABLE participants (
         id TEXT PRIMARY KEY,
         trip_id TEXT NOT NULL,
+        user_id TEXT,
         name TEXT NOT NULL,
         contact TEXT,
         notes TEXT,
@@ -148,16 +150,20 @@ class DatabaseHelper {
         name TEXT,
         email TEXT,
         photo_path TEXT,
+        synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
       )
     ''');
+
+    await _createSyncQueue(db);
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE activities ADD COLUMN transport_type TEXT');
       await db.execute('ALTER TABLE activities ADD COLUMN ticket_number TEXT');
-      await db.execute('ALTER TABLE activities ADD COLUMN transport_number TEXT');
+      await db
+          .execute('ALTER TABLE activities ADD COLUMN transport_number TEXT');
       await db.execute('ALTER TABLE activities ADD COLUMN departure_date TEXT');
       await db.execute('ALTER TABLE activities ADD COLUMN arrival_date TEXT');
       await db.execute('ALTER TABLE expenses ADD COLUMN transport_type TEXT');
@@ -218,6 +224,33 @@ class DatabaseHelper {
         "ALTER TABLE participants ADD COLUMN role TEXT NOT NULL DEFAULT 'participant'",
       );
     }
+    if (oldVersion < 6) {
+      await _createSyncQueue(db);
+    }
+    if (oldVersion < 7) {
+      await db.execute(
+        'ALTER TABLE profile ADD COLUMN synced INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (oldVersion >= 6 && oldVersion < 8) {
+      await db.execute('ALTER TABLE pending_deletions ADD COLUMN user_id TEXT');
+    }
+    if (oldVersion < 9) {
+      await db.execute('ALTER TABLE trips ADD COLUMN organizer_id TEXT');
+      await db.execute('ALTER TABLE participants ADD COLUMN user_id TEXT');
+      await db.execute('UPDATE trips SET organizer_id = user_id');
+    }
+  }
+
+  Future<void> _createSyncQueue(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS pending_deletions (
+        table_name TEXT NOT NULL,
+        record_id TEXT NOT NULL,
+        user_id TEXT,
+        PRIMARY KEY (table_name, record_id)
+      )
+    ''');
   }
 
   Future<void> _createLinkTables(Database db) async {

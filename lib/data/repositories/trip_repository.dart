@@ -7,7 +7,7 @@ import '../../models/trip.dart';
 /// `ApiTripRepository implements TripRepository`, который вместо
 /// SQL-запросов будет ходить в REST API, и подменить реализацию
 /// в месте создания провайдера (main.dart) — остальной код менять
-/// не придётся.
+/// не придется.
 abstract class TripRepository {
   Future<List<Trip>> getAllTrips();
   Future<Trip?> getTripById(String id);

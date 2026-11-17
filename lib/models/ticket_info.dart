@@ -1,5 +1,5 @@
 enum TransportKind {
-  plane('Самолёт'),
+  plane('Самолет'),
   train('Поезд'),
   bus('Автобус'),
   ship('Корабль / паром'),

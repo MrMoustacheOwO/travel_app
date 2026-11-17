@@ -3,7 +3,13 @@ import 'package:provider/provider.dart';
 import 'package:travel_expenses_app/screens/profile_settings_screen.dart';
 
 import '../models/trip.dart';
+import '../data/supabase_sync_service.dart';
+import '../providers/activities_provider.dart';
+import '../providers/auth_provider.dart';
+import '../providers/expenses_provider.dart';
+import '../providers/participants_provider.dart';
 import '../providers/trips_provider.dart';
+import '../widgets/sync_status_banner.dart';
 import 'add_trip_screen.dart';
 import 'expenses_screen.dart';
 import 'home_screen.dart';
@@ -22,6 +28,7 @@ class MainShell extends StatefulWidget {
 class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
   String? _selectedTripId;
+  bool _syncWasRunning = false;
 
   void _selectTrip(Trip trip) {
     setState(() {
@@ -32,10 +39,30 @@ class _MainShellState extends State<MainShell> {
 
   @override
   Widget build(BuildContext context) {
+    final sync = context.watch<SupabaseSyncService>();
+    if (sync.syncing) {
+      _syncWasRunning = true;
+    } else if (_syncWasRunning) {
+      _syncWasRunning = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !context.read<AuthProvider>().isAuthenticated) return;
+        context.read<TripsProvider>().loadTrips();
+        final tripId = _selectedTripId;
+        if (tripId != null) {
+          context.read<ParticipantsProvider>().loadForTrip(tripId);
+          context.read<ActivitiesProvider>().loadForTrip(tripId);
+          context.read<ExpensesProvider>().loadForTrip(tripId);
+        }
+      });
+    }
+
     final tripsProvider = context.watch<TripsProvider>();
     final selectedTrip = _selectedTripId == null
         ? null
         : tripsProvider.tripById(_selectedTripId!);
+    final isTripOrganizer = selectedTrip != null &&
+        (selectedTrip.organizerId ?? selectedTrip.userId) ==
+            context.watch<AuthProvider>().currentUser?.id;
 
     final titles = ['Мои поездки', 'Поездка', 'Расходы', 'Участники'];
 
@@ -70,7 +97,8 @@ class _MainShellState extends State<MainShell> {
               icon: const Icon(Icons.account_circle_outlined),
               onPressed: () {
                 Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const ProfileSettingsScreen()),
+                  MaterialPageRoute(
+                      builder: (_) => const ProfileSettingsScreen()),
                 );
               },
             ),
@@ -79,7 +107,9 @@ class _MainShellState extends State<MainShell> {
                 : titles[_selectedIndex]),
             centerTitle: true,
             actions: [
-              if (selectedTrip != null && _selectedIndex == 1)
+              if (selectedTrip != null &&
+                  _selectedIndex == 1 &&
+                  isTripOrganizer)
                 IconButton(
                   tooltip: 'Редактировать поездку',
                   icon: const Icon(Icons.edit_outlined),
@@ -96,15 +126,25 @@ class _MainShellState extends State<MainShell> {
 
     return Scaffold(
       appBar: appBar,
-      body: body,
+      body: Column(
+        children: [
+          const SyncStatusBanner(),
+          Expanded(child: body),
+        ],
+      ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Главная'),
-          NavigationDestination(icon: Icon(Icons.flight_takeoff), label: 'Поездка'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), label: 'Расходы'),
-          NavigationDestination(icon: Icon(Icons.group_outlined), label: 'Участники'),
+          NavigationDestination(
+              icon: Icon(Icons.home_outlined), label: 'Главная'),
+          NavigationDestination(
+              icon: Icon(Icons.flight_takeoff), label: 'Поездка'),
+          NavigationDestination(
+              icon: Icon(Icons.receipt_long_outlined), label: 'Расходы'),
+          NavigationDestination(
+              icon: Icon(Icons.group_outlined), label: 'Участники'),
         ],
       ),
     );

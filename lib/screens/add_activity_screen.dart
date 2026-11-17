@@ -3,12 +3,14 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../models/activity.dart';
-import '../models/participant.dart';
 import '../models/spending_category.dart';
 import '../models/ticket_info.dart';
 import '../providers/activities_provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/expenses_provider.dart';
 import '../providers/participants_provider.dart';
+import '../providers/trips_provider.dart';
+import '../utils/trip_access.dart';
 import '../widgets/category_dropdown.dart';
 import '../widgets/participant_multi_select.dart';
 import '../widgets/ticket_form.dart';
@@ -39,16 +41,10 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
   late DateTime _dateTime;
   late TicketInfo _ticket;
   late bool _isMain;
-  late bool _privateOnly;
   Set<String> _participantIds = {};
   bool _saving = false;
 
   bool get _isEditing => widget.activity != null;
-
-  bool _isOrganizer(List<Participant> participants) {
-    if (participants.isEmpty) return true;
-    return participants.first.role == TripParticipantRole.organizer;
-  }
 
   @override
   void initState() {
@@ -66,8 +62,6 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
     _ticket = activity?.ticket.copy() ?? TicketInfo();
     _isMain = activity?.isMain ?? false;
     _participantIds = {...?activity?.participantIds};
-    final participants = context.read<ParticipantsProvider>().participants;
-    _privateOnly = !_isOrganizer(participants) && widget.activity == null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ParticipantsProvider>().loadForTrip(widget.tripId);
       context.read<ExpensesProvider>().loadForTrip(widget.tripId);
@@ -97,7 +91,8 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
     );
     if (time == null) return;
     setState(() {
-      _dateTime = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _dateTime =
+          DateTime(date.year, date.month, date.day, time.hour, time.minute);
     });
   }
 
@@ -115,19 +110,35 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
     if (!_formKey.currentState!.validate()) return;
     final ticketError = _validateTicketDates();
     if (ticketError != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ticketError)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(ticketError)));
+      return;
+    }
+    final user = context.read<AuthProvider>().currentUser;
+    final participants = context.read<ParticipantsProvider>().participants;
+    final self = participantForUser(
+      participants,
+      userId: user?.id,
+      email: user?.email,
+    );
+    final isOrganizer = isTripOrganizer(
+      context.read<TripsProvider>().tripById(widget.tripId),
+      user?.id,
+    );
+    if (!isOrganizer && self == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Ваш аккаунт не связан с участником поездки.')),
+      );
       return;
     }
     setState(() => _saving = true);
-    final cost = double.tryParse(_costController.text.replaceAll(',', '.')) ?? 0;
+    final cost =
+        double.tryParse(_costController.text.replaceAll(',', '.')) ?? 0;
     final ticket =
         _category == SpendingCategory.tickets ? _ticket : TicketInfo();
-    final participants = _participantIds.toList();
-    final allParticipants = context.read<ParticipantsProvider>().participants;
     final effectiveParticipants =
-        (!_isOrganizer(allParticipants) && _privateOnly && allParticipants.isNotEmpty)
-            ? [allParticipants.first.id]
-            : participants;
+        isOrganizer ? _participantIds.toList() : [self!.id];
     final activities = context.read<ActivitiesProvider>();
     final expenses = context.read<ExpensesProvider>();
 
@@ -171,7 +182,17 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
   Widget build(BuildContext context) {
     final df = DateFormat('dd.MM.yyyy HH:mm');
     final participants = context.watch<ParticipantsProvider>().participants;
-    final canCreatePrivate = !widget.readOnly && !_isOrganizer(participants);
+    final user = context.watch<AuthProvider>().currentUser;
+    final self = participantForUser(
+      participants,
+      userId: user?.id,
+      email: user?.email,
+    );
+    final isOrganizer = isTripOrganizer(
+      context.watch<TripsProvider>().tripById(widget.tripId),
+      user?.id,
+    );
+    final readOnly = widget.readOnly || (!isOrganizer && self == null);
     return Scaffold(
       appBar: AppBar(
         leading: const BackButton(),
@@ -199,7 +220,7 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
                 ),
               ),
             TextFormField(
-              enabled: !widget.readOnly,
+              enabled: !readOnly,
               controller: _nameController,
               decoration: const InputDecoration(
                 labelText: 'Название активности',
@@ -211,31 +232,28 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
             const SizedBox(height: 16),
             CategoryDropdown(
               value: _category,
-              onChanged: widget.readOnly ? (_) {} : (c) => setState(() => _category = c),
+              onChanged:
+                  readOnly ? (_) {} : (c) => setState(() => _category = c),
             ),
             const SizedBox(height: 16),
-            if (canCreatePrivate)
+            if (isOrganizer)
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
-                title: const Text('Личная активность (видно только мне)'),
-                value: _privateOnly,
-                onChanged: (value) => setState(() => _privateOnly = value),
+                title: const Text('Главная активность поездки'),
+                value: _isMain,
+                onChanged: readOnly
+                    ? null
+                    : (value) => setState(() => _isMain = value),
               ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('Главная активность поездки'),
-              value: _isMain,
-              onChanged: widget.readOnly ? null : (value) => setState(() => _isMain = value),
-            ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: widget.readOnly ? null : _pickDateTime,
+              onPressed: readOnly ? null : _pickDateTime,
               icon: const Icon(Icons.event),
               label: Text('Дата и время: ${df.format(_dateTime)}'),
             ),
             const SizedBox(height: 16),
             TextFormField(
-              enabled: !widget.readOnly,
+              enabled: !readOnly,
               controller: _locationController,
               decoration: const InputDecoration(
                 labelText: 'Место проведения',
@@ -244,7 +262,7 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
             ),
             const SizedBox(height: 16),
             TextFormField(
-              enabled: !widget.readOnly,
+              enabled: !readOnly,
               controller: _descriptionController,
               maxLines: 3,
               decoration: const InputDecoration(
@@ -254,9 +272,10 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
             ),
             const SizedBox(height: 16),
             TextFormField(
-              enabled: !widget.readOnly,
+              enabled: !readOnly,
               controller: _costController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
               decoration: const InputDecoration(
                 labelText: 'Стоимость активности',
                 border: OutlineInputBorder(),
@@ -265,28 +284,34 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            ParticipantMultiSelect(
-              participants: participants,
-              selectedIds: _participantIds,
-              onChanged: widget.readOnly ? (_) {} : (ids) => setState(() => _participantIds = ids),
-            ),
+            if (isOrganizer)
+              ParticipantMultiSelect(
+                participants: participants,
+                selectedIds: _participantIds,
+                onChanged: readOnly
+                    ? (_) {}
+                    : (ids) => setState(() => _participantIds = ids),
+              ),
             if (_category == SpendingCategory.tickets) ...[
               const SizedBox(height: 16),
               TicketForm(
                 ticket: _ticket,
-                onChanged: (t) => setState(() => _ticket = t),
+                onChanged:
+                    readOnly ? (_) {} : (t) => setState(() => _ticket = t),
               ),
             ],
             const SizedBox(height: 24),
             FilledButton(
-              onPressed: widget.readOnly || _saving ? null : _save,
+              onPressed: readOnly || _saving ? null : _save,
               child: _saving
                   ? const SizedBox(
                       height: 20, width: 20, child: CircularProgressIndicator())
                   : Text(
-                      widget.readOnly
+                      readOnly
                           ? 'Только просмотр'
-                          : (_isEditing ? 'Сохранить изменения' : 'Сохранить активность'),
+                          : (_isEditing
+                              ? 'Сохранить изменения'
+                              : 'Сохранить активность'),
                     ),
             ),
             if (_isEditing && widget.activity!.isCompleted) ...[
@@ -299,7 +324,8 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
             ] else if (_isEditing) ...[
               const SizedBox(height: 12),
               OutlinedButton.icon(
-                onPressed: widget.readOnly || _saving ? null : () => _save(complete: true),
+                onPressed:
+                    readOnly || _saving ? null : () => _save(complete: true),
                 icon: const Icon(Icons.task_alt),
                 label: const Text('Завершить активность'),
               ),

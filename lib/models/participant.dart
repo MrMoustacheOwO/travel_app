@@ -6,7 +6,7 @@ extension ParticipationStatusLabel on ParticipationStatus {
   String get label {
     switch (this) {
       case ParticipationStatus.invited:
-        return 'Приглашён';
+        return 'Приглашен';
       case ParticipationStatus.confirmed:
         return 'Подтвердил участие';
       case ParticipationStatus.declined:
@@ -29,6 +29,7 @@ extension TripParticipantRoleLabel on TripParticipantRole {
 class Participant {
   final String id;
   final String tripId;
+  String? userId;
   String name;
   String contact;
   String notes;
@@ -40,6 +41,7 @@ class Participant {
   Participant({
     required this.id,
     required this.tripId,
+    this.userId,
     required this.name,
     this.contact = '',
     this.notes = '',
@@ -53,6 +55,7 @@ class Participant {
     return {
       'id': id,
       'trip_id': tripId,
+      'user_id': userId,
       'name': name,
       'contact': contact,
       'notes': notes,
@@ -67,6 +70,7 @@ class Participant {
     return Participant(
       id: map['id'] as String,
       tripId: map['trip_id'] as String,
+      userId: map['user_id'] as String?,
       name: map['name'] as String,
       contact: map['contact'] as String? ?? '',
       notes: map['notes'] as String? ?? '',

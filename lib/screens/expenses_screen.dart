@@ -2,14 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/expense.dart';
-import '../models/participant.dart';
 import '../models/spending_category.dart';
 import '../models/trip.dart';
 import '../providers/expenses_provider.dart';
+import '../providers/auth_provider.dart';
 import '../providers/participants_provider.dart';
 import '../widgets/confirm_delete.dart';
 import '../widgets/category_filter_chips.dart';
 import '../widgets/expense_tile.dart';
+import '../utils/trip_access.dart';
 import 'add_expense_screen.dart';
 
 class ExpensesScreen extends StatefulWidget {
@@ -42,21 +43,28 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     }
   }
 
-  bool _isOrganizer(List<Participant> participants) {
-    if (participants.isEmpty) return true;
-    return participants.first.role == TripParticipantRole.organizer;
-  }
-
   @override
   Widget build(BuildContext context) {
     final expensesProvider = context.watch<ExpensesProvider>();
     final participantsProvider = context.watch<ParticipantsProvider>();
-    final isOrganizer = _isOrganizer(participantsProvider.participants);
+    final participants = participantsProvider.participants;
+    final user = context.watch<AuthProvider>().currentUser;
+    final self = participantForUser(
+      participants,
+      userId: user?.id,
+      email: user?.email,
+    );
+    final isOrganizer = isTripOrganizer(widget.trip, user?.id);
 
     final filteredExpenses = expensesProvider.expenses
         .where((e) =>
-            _selectedCategories.isEmpty ||
-            _selectedCategories.contains(e.category))
+            isRecordVisibleToUser(
+              isOrganizer: isOrganizer,
+              participantIds: e.participantIds,
+              currentParticipantId: self?.id,
+            ) &&
+            (_selectedCategories.isEmpty ||
+                _selectedCategories.contains(e.category)))
         .toList();
     final confirmedExpenses = filteredExpenses
         .where((e) => e.confirmation != ExpenseConfirmation.pending)
@@ -94,19 +102,28 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                       expense: e,
                       paidBy: _findParticipant(
                           participantsProvider, e.paidByParticipantId),
-                      participants: participantsProvider.participants,
-                      onTap: () => _openExpense(e, readOnly: !isOrganizer),
+                      participants: participants,
+                      onTap: () => _openExpense(
+                        e,
+                        readOnly: !isOrganizer &&
+                            !e.participantIds.contains(self?.id),
+                      ),
                       onConfirm: isOrganizer
                           ? () => context
                               .read<ExpensesProvider>()
-                              .setConfirmation(e.id, ExpenseConfirmation.confirmed)
+                              .setConfirmation(
+                                  e.id, ExpenseConfirmation.confirmed)
                           : null,
                       onReject: isOrganizer
                           ? () => context
                               .read<ExpensesProvider>()
-                              .setConfirmation(e.id, ExpenseConfirmation.rejected)
+                              .setConfirmation(
+                                  e.id, ExpenseConfirmation.rejected)
                           : null,
-                      onDelete: isOrganizer ? () => _deleteExpense(e) : null,
+                      onDelete:
+                          isOrganizer || e.participantIds.contains(self?.id)
+                              ? () => _deleteExpense(e)
+                              : null,
                     ),
                 ],
                 const Padding(
@@ -124,13 +141,19 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                     expense: e,
                     paidBy: _findParticipant(
                         participantsProvider, e.paidByParticipantId),
-                    participants: participantsProvider.participants,
-                    onTap: () => _openExpense(e, readOnly: !isOrganizer),
-                    onDelete: isOrganizer ? () => _deleteExpense(e) : null,
+                    participants: participants,
+                    onTap: () => _openExpense(
+                      e,
+                      readOnly:
+                          !isOrganizer && !e.participantIds.contains(self?.id),
+                    ),
+                    onDelete: isOrganizer || e.participantIds.contains(self?.id)
+                        ? () => _deleteExpense(e)
+                        : null,
                   ),
               ],
             ),
-      floatingActionButton: isOrganizer
+      floatingActionButton: isOrganizer || self != null
           ? FloatingActionButton(
               onPressed: () {
                 Navigator.of(context).push(
@@ -161,7 +184,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     final ok = await confirmDelete(
       context,
       title: 'Удалить расход?',
-      content: 'Расход «${expense.name}» будет удалён.',
+      content: 'Расход «${expense.name}» будет удален.',
     );
     if (!ok || !mounted) return;
     await context.read<ExpensesProvider>().deleteExpense(expense.id);

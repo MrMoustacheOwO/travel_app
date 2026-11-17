@@ -31,7 +31,15 @@ migrate_working_dir/
 .pub-cache/
 .pub/
 /build/
+/android/build/
 /coverage/
+
+# Local credentials and environment configuration
+.env
+.env.*
+!.env.example
+/lib/config/*_local.dart
+/lib/config/*_secrets.dart
 
 # Symbolication related
 app.*.symbols

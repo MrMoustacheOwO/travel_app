@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart';
+
 import '../../models/trip.dart';
 import '../db/database_helper.dart';
 import 'auth_repository.dart';
@@ -5,7 +7,14 @@ import 'trip_repository.dart';
 
 class LocalTripRepository implements TripRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
-  final LocalAuthRepository _authRepository = LocalAuthRepository();
+  final AuthRepository _authRepository;
+  final void Function()? _onChanged;
+
+  LocalTripRepository({
+    AuthRepository? authRepository,
+    void Function()? onChanged,
+  })  : _authRepository = authRepository ?? LocalAuthRepository(),
+        _onChanged = onChanged;
 
   @override
   Future<List<Trip>> getAllTrips() async {
@@ -46,7 +55,10 @@ class LocalTripRepository implements TripRepository {
     await db.insert('trips', {
       ...trip.toMap(),
       'user_id': user.id,
+      'organizer_id': user.id,
+      'synced': 0,
     });
+    _onChanged?.call();
   }
 
   @override
@@ -60,10 +72,13 @@ class LocalTripRepository implements TripRepository {
       {
         ...trip.toMap(),
         'user_id': user.id,
+        'organizer_id': user.id,
+        'synced': 0,
       },
       where: 'id = ? AND (user_id IS NULL OR user_id = ?)',
       whereArgs: [trip.id, user.id],
     );
+    _onChanged?.call();
   }
 
   @override
@@ -72,6 +87,11 @@ class LocalTripRepository implements TripRepository {
     if (user == null) return;
 
     final db = await _dbHelper.database;
+    await db.insert(
+      'pending_deletions',
+      {'table_name': 'trips', 'record_id': id, 'user_id': user.id},
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     final activityRows = await db.query(
       'activities',
       columns: ['id'],
@@ -79,7 +99,8 @@ class LocalTripRepository implements TripRepository {
       whereArgs: [id],
     );
     for (final row in activityRows) {
-      await db.delete('activity_participants', where: 'activity_id = ?', whereArgs: [row['id']]);
+      await db.delete('activity_participants',
+          where: 'activity_id = ?', whereArgs: [row['id']]);
     }
     final expenseRows = await db.query(
       'expenses',
@@ -88,7 +109,8 @@ class LocalTripRepository implements TripRepository {
       whereArgs: [id],
     );
     for (final row in expenseRows) {
-      await db.delete('expense_participants', where: 'expense_id = ?', whereArgs: [row['id']]);
+      await db.delete('expense_participants',
+          where: 'expense_id = ?', whereArgs: [row['id']]);
     }
     await db.delete('expenses', where: 'trip_id = ?', whereArgs: [id]);
     await db.delete('activities', where: 'trip_id = ?', whereArgs: [id]);
@@ -98,5 +120,6 @@ class LocalTripRepository implements TripRepository {
       where: 'id = ? AND (user_id IS NULL OR user_id = ?)',
       whereArgs: [id, user.id],
     );
+    _onChanged?.call();
   }
 }

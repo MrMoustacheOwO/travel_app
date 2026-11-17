@@ -87,6 +87,26 @@ void main() {
       );
     });
   });
+
+  test('local database includes a user-scoped offline deletion queue',
+      () async {
+    final db = await DatabaseHelper.instance.database;
+    final columns = await db.rawQuery('PRAGMA table_info(pending_deletions)');
+
+    expect(columns.map((row) => row['name']), contains('table_name'));
+    expect(columns.map((row) => row['name']), contains('record_id'));
+    expect(columns.map((row) => row['name']), contains('user_id'));
+
+    final profileColumns = await db.rawQuery('PRAGMA table_info(profile)');
+    expect(profileColumns.map((row) => row['name']), contains('synced'));
+
+    final tripColumns = await db.rawQuery('PRAGMA table_info(trips)');
+    expect(tripColumns.map((row) => row['name']), contains('organizer_id'));
+
+    final participantColumns =
+        await db.rawQuery('PRAGMA table_info(participants)');
+    expect(participantColumns.map((row) => row['name']), contains('user_id'));
+  });
 }
 
 class _FailingHttpClient extends http.BaseClient {

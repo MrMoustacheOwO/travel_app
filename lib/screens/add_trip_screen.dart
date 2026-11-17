@@ -17,7 +17,6 @@ class AddTripScreen extends StatefulWidget {
 class _AddTripScreenState extends State<AddTripScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
-  late final TextEditingController _peopleController;
   DateTime? _startDate;
   DateTime? _endDate;
   bool _saving = false;
@@ -31,8 +30,6 @@ class _AddTripScreenState extends State<AddTripScreen> {
     super.initState();
     final trip = widget.trip;
     _nameController = TextEditingController(text: trip?.name ?? '');
-    _peopleController =
-        TextEditingController(text: '${trip?.peopleCount ?? 1}');
     _startDate = trip?.startDate;
     _endDate = trip?.endDate;
   }
@@ -40,7 +37,6 @@ class _AddTripScreenState extends State<AddTripScreen> {
   @override
   void dispose() {
     _nameController.dispose();
-    _peopleController.dispose();
     super.dispose();
   }
 
@@ -69,7 +65,8 @@ class _AddTripScreenState extends State<AddTripScreen> {
     if (!_formKey.currentState!.validate()) return;
     if (_startDate == null || _endDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Укажите даты начала и окончания поездки')),
+        const SnackBar(
+            content: Text('Укажите даты начала и окончания поездки')),
       );
       return;
     }
@@ -79,8 +76,7 @@ class _AddTripScreenState extends State<AddTripScreen> {
       final trip = widget.trip!
         ..name = _nameController.text.trim()
         ..startDate = _startDate!
-        ..endDate = _endDate!
-        ..peopleCount = int.tryParse(_peopleController.text) ?? 1;
+        ..endDate = _endDate!;
       await provider.updateTrip(trip);
       if (!mounted) return;
       Navigator.of(context).pop(trip);
@@ -89,7 +85,7 @@ class _AddTripScreenState extends State<AddTripScreen> {
         name: _nameController.text.trim(),
         startDate: _startDate!,
         endDate: _endDate!,
-        peopleCount: int.tryParse(_peopleController.text) ?? 1,
+        peopleCount: 1,
       );
       if (!mounted) return;
       Navigator.of(context).pop(trip);
@@ -101,7 +97,8 @@ class _AddTripScreenState extends State<AddTripScreen> {
     return Scaffold(
       appBar: AppBar(
         leading: const BackButton(),
-        title: Text(_isEditing ? 'Редактирование поездки' : 'Форма добавления поездки'),
+        title: Text(
+            _isEditing ? 'Редактирование поездки' : 'Форма добавления поездки'),
         centerTitle: true,
       ),
       body: Form(
@@ -135,25 +132,12 @@ class _AddTripScreenState extends State<AddTripScreen> {
                   child: OutlinedButton.icon(
                     onPressed: () => _pickDate(isStart: false),
                     icon: const Icon(Icons.calendar_today),
-                    label: Text(
-                        _endDate == null ? 'Дата окончания' : _df.format(_endDate!)),
+                    label: Text(_endDate == null
+                        ? 'Дата окончания'
+                        : _df.format(_endDate!)),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _peopleController,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Количество людей',
-                border: OutlineInputBorder(),
-              ),
-              validator: (v) {
-                final n = int.tryParse(v ?? '');
-                if (n == null || n < 1) return 'Укажите число людей (не менее 1)';
-                return null;
-              },
             ),
             const SizedBox(height: 24),
             FilledButton(
@@ -161,7 +145,8 @@ class _AddTripScreenState extends State<AddTripScreen> {
               child: _saving
                   ? const SizedBox(
                       height: 20, width: 20, child: CircularProgressIndicator())
-                  : Text(_isEditing ? 'Сохранить изменения' : 'Сохранить поездку'),
+                  : Text(
+                      _isEditing ? 'Сохранить изменения' : 'Сохранить поездку'),
             ),
           ],
         ),

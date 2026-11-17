@@ -1,5 +1,6 @@
 import '../../models/expense.dart';
 import '../db/database_helper.dart';
+import 'package:sqflite/sqflite.dart';
 
 abstract class ExpenseRepository {
   Future<List<Expense>> getForTrip(String tripId);
@@ -10,6 +11,9 @@ abstract class ExpenseRepository {
 
 class LocalExpenseRepository implements ExpenseRepository {
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+  final void Function()? _onChanged;
+
+  LocalExpenseRepository({void Function()? onChanged}) : _onChanged = onChanged;
 
   @override
   Future<List<Expense>> getForTrip(String tripId) async {
@@ -26,24 +30,52 @@ class LocalExpenseRepository implements ExpenseRepository {
   @override
   Future<void> create(Expense expense) async {
     final db = await _dbHelper.database;
-    await db.insert('expenses', expense.toMap());
+    await db.insert('expenses', {...expense.toMap(), 'synced': 0});
     await _replaceParticipants(expense.id, expense.participantIds);
+    _onChanged?.call();
   }
 
   @override
   Future<void> update(Expense expense) async {
     final db = await _dbHelper.database;
-    await db.update('expenses', expense.toMap(),
+    await db.update('expenses', {...expense.toMap(), 'synced': 0},
         where: 'id = ?', whereArgs: [expense.id]);
     await _replaceParticipants(expense.id, expense.participantIds);
+    _onChanged?.call();
   }
 
   @override
   Future<void> delete(String id) async {
     final db = await _dbHelper.database;
+    final expenseRows = await db.query(
+      'expenses',
+      columns: ['trip_id'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    final tripRows = expenseRows.isEmpty
+        ? <Map<String, Object?>>[]
+        : await db.query(
+            'trips',
+            columns: ['user_id'],
+            where: 'id = ?',
+            whereArgs: [expenseRows.first['trip_id']],
+            limit: 1,
+          );
+    await db.insert(
+      'pending_deletions',
+      {
+        'table_name': 'expenses',
+        'record_id': id,
+        'user_id': tripRows.isEmpty ? null : tripRows.first['user_id'],
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
     await db.delete('expense_participants',
         where: 'expense_id = ?', whereArgs: [id]);
     await db.delete('expenses', where: 'id = ?', whereArgs: [id]);
+    _onChanged?.call();
   }
 
   Future<List<String>> _participantIds(String expenseId) async {
