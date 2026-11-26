@@ -24,8 +24,9 @@ class LocalTripRepository implements TripRepository {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'trips',
-      where: 'user_id IS NULL OR user_id = ?',
-      whereArgs: [user.id],
+      where: '(user_id IS NULL OR user_id = ?) AND '
+          '(membership_status IS NULL OR membership_status != ? OR organizer_id = ?)',
+      whereArgs: [user.id, 'declined', user.id],
       orderBy: 'start_date DESC',
     );
     return rows.map((e) => Trip.fromMap(e)).toList();

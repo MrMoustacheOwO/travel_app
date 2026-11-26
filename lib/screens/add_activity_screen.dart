@@ -125,6 +125,14 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
       context.read<TripsProvider>().tripById(widget.tripId),
       user?.id,
     );
+    if (isOrganizer && _participantIds.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Выберите хотя бы одного участника поездки.'),
+        ),
+      );
+      return;
+    }
     if (!isOrganizer && self == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -154,7 +162,9 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
         ..isMain = _isMain
         ..isCompleted = widget.activity!.isCompleted || complete
         ..ticket = ticket
-        ..participantIds = effectiveParticipants;
+        ..participantIds = effectiveParticipants
+        ..createdBy = user?.id
+        ..scope = isOrganizer ? 'shared' : 'private';
       await activities.updateActivity(activity);
       saved = activity;
     } else {
@@ -168,10 +178,12 @@ class _AddActivityScreenState extends State<AddActivityScreen> {
         isMain: _isMain,
         ticket: ticket,
         participantIds: effectiveParticipants,
+        createdBy: user?.id,
+        scope: isOrganizer ? 'shared' : 'private',
       );
     }
 
-    if (saved != null && saved.isCompleted) {
+    if (saved != null) {
       await expenses.syncExpenseForActivity(saved);
     }
     if (!mounted) return;

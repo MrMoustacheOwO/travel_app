@@ -38,6 +38,8 @@ class ActivitiesProvider extends ChangeNotifier {
     bool isMain = false,
     TicketInfo? ticket,
     List<String> participantIds = const [],
+    String? createdBy,
+    String scope = 'shared',
   }) async {
     if (_tripId == null) return null;
     final activity = TripActivity(
@@ -52,6 +54,8 @@ class ActivitiesProvider extends ChangeNotifier {
       isMain: isMain,
       ticket: ticket,
       participantIds: List.of(participantIds),
+      createdBy: createdBy,
+      scope: scope,
     );
     await _repository.create(activity);
     await loadForTrip(_tripId!);

@@ -3,17 +3,16 @@ enum TransportKind {
   train('Поезд'),
   bus('Автобус'),
   ship('Корабль / паром'),
-  taxi('Такси / трансфер'),
-  other('Другое');
+  taxi('Такси / трансфер');
 
   final String label;
   const TransportKind(this.label);
 
   static TransportKind fromStorageKey(String? key) {
-    if (key == null || key.isEmpty) return TransportKind.other;
+    if (key == null || key.isEmpty) return TransportKind.plane;
     return TransportKind.values.firstWhere(
       (e) => e.name == key,
-      orElse: () => TransportKind.other,
+      orElse: () => TransportKind.plane,
     );
   }
 }
@@ -27,7 +26,7 @@ class TicketInfo {
   DateTime? arrivalDate;
 
   TicketInfo({
-    this.transportKind = TransportKind.other,
+    this.transportKind = TransportKind.plane,
     this.ticketNumber = '',
     this.transportNumber = '',
     this.departureDate,
@@ -35,7 +34,6 @@ class TicketInfo {
   });
 
   bool get hasData =>
-      ticketNumber.trim().isNotEmpty ||
       transportNumber.trim().isNotEmpty ||
       departureDate != null ||
       arrivalDate != null;
@@ -52,7 +50,8 @@ class TicketInfo {
 
   factory TicketInfo.fromMap(Map<String, Object?> map) {
     return TicketInfo(
-      transportKind: TransportKind.fromStorageKey(map['transport_type'] as String?),
+      transportKind:
+          TransportKind.fromStorageKey(map['transport_type'] as String?),
       ticketNumber: map['ticket_number'] as String? ?? '',
       transportNumber: map['transport_number'] as String? ?? '',
       departureDate: _parseDate(map['departure_date']),

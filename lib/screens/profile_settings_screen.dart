@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
+import '../models/trip.dart';
 import '../providers/auth_provider.dart';
 import '../providers/profile_provider.dart';
 import '../providers/trips_provider.dart';
@@ -156,7 +157,7 @@ class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.flight_takeoff),
                         title: Text(t.name),
-                        subtitle: Text(t.status.name),
+                        subtitle: Text(t.status.label),
                       )),
                 const SizedBox(height: 24),
                 FilledButton(

@@ -62,6 +62,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
               isOrganizer: isOrganizer,
               participantIds: e.participantIds,
               currentParticipantId: self?.id,
+              currentUserId: user?.id,
+              organizerId: widget.trip.organizerId ?? widget.trip.userId,
+              createdBy: e.createdBy,
+              scope: e.scope,
             ) &&
             (_selectedCategories.isEmpty ||
                 _selectedCategories.contains(e.category)))
@@ -102,11 +106,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                       expense: e,
                       paidBy: _findParticipant(
                           participantsProvider, e.paidByParticipantId),
-                      participants: participants,
                       onTap: () => _openExpense(
                         e,
-                        readOnly: !isOrganizer &&
-                            !e.participantIds.contains(self?.id),
+                        readOnly: !canManageTripRecord(
+                          isOrganizer: isOrganizer,
+                          currentUserId: user?.id,
+                          createdBy: e.createdBy,
+                          scope: e.scope,
+                        ),
                       ),
                       onConfirm: isOrganizer
                           ? () => context
@@ -120,10 +127,14 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                               .setConfirmation(
                                   e.id, ExpenseConfirmation.rejected)
                           : null,
-                      onDelete:
-                          isOrganizer || e.participantIds.contains(self?.id)
-                              ? () => _deleteExpense(e)
-                              : null,
+                      onDelete: canManageTripRecord(
+                        isOrganizer: isOrganizer,
+                        currentUserId: user?.id,
+                        createdBy: e.createdBy,
+                        scope: e.scope,
+                      )
+                          ? () => _deleteExpense(e)
+                          : null,
                     ),
                 ],
                 const Padding(
@@ -141,13 +152,21 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
                     expense: e,
                     paidBy: _findParticipant(
                         participantsProvider, e.paidByParticipantId),
-                    participants: participants,
                     onTap: () => _openExpense(
                       e,
-                      readOnly:
-                          !isOrganizer && !e.participantIds.contains(self?.id),
+                      readOnly: !canManageTripRecord(
+                        isOrganizer: isOrganizer,
+                        currentUserId: user?.id,
+                        createdBy: e.createdBy,
+                        scope: e.scope,
+                      ),
                     ),
-                    onDelete: isOrganizer || e.participantIds.contains(self?.id)
+                    onDelete: canManageTripRecord(
+                      isOrganizer: isOrganizer,
+                      currentUserId: user?.id,
+                      createdBy: e.createdBy,
+                      scope: e.scope,
+                    )
                         ? () => _deleteExpense(e)
                         : null,
                   ),

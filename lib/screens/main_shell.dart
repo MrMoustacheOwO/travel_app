@@ -128,7 +128,7 @@ class _MainShellState extends State<MainShell> {
       appBar: appBar,
       body: Column(
         children: [
-          const SyncStatusBanner(),
+          if (_selectedIndex != 0) const SyncStatusBanner(),
           Expanded(child: body),
         ],
       ),

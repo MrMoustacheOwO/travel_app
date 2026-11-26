@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 
 import '../data/repositories/trip_repository.dart';
 import '../data/repositories/participant_repository.dart';
+import '../models/participant.dart';
 import '../models/trip.dart';
 
 class TripsProvider extends ChangeNotifier {
@@ -31,7 +32,9 @@ class TripsProvider extends ChangeNotifier {
       final counts = await Future.wait(_trips.map((trip) async {
         final participants = await participantRepository.getForTrip(trip.id);
         final guestCount = participants
-            .where((participant) => participant.userId != trip.organizerId)
+            .where((participant) =>
+                participant.userId != trip.organizerId &&
+                participant.status != ParticipationStatus.declined)
             .length;
         return guestCount + 1;
       }));

@@ -30,6 +30,8 @@ class Trip {
   final DateTime createdAt;
   bool synced;
   String? remoteId;
+  String? membershipId;
+  String? membershipStatus;
 
   Trip({
     required this.id,
@@ -42,6 +44,8 @@ class Trip {
     DateTime? createdAt,
     this.synced = false,
     this.remoteId,
+    this.membershipId,
+    this.membershipStatus,
   }) : createdAt = createdAt ?? DateTime.now();
 
   /// Статус вычисляется автоматически по датам поездки и текущей дате.
@@ -67,6 +71,8 @@ class Trip {
       'created_at': createdAt.toIso8601String(),
       'synced': synced ? 1 : 0,
       'remote_id': remoteId,
+      'membership_id': membershipId,
+      'membership_status': membershipStatus,
     };
   }
 
@@ -82,6 +88,8 @@ class Trip {
       createdAt: DateTime.parse(map['created_at'] as String),
       synced: (map['synced'] as int? ?? 0) == 1,
       remoteId: map['remote_id'] as String?,
+      membershipId: map['membership_id'] as String?,
+      membershipStatus: map['membership_status'] as String?,
     );
   }
 

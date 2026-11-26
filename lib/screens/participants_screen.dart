@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/participant.dart';
 import '../models/trip.dart';
@@ -25,9 +29,13 @@ class ParticipantsScreen extends StatefulWidget {
 class _ParticipantsScreenState extends State<ParticipantsScreen>
     with SingleTickerProviderStateMixin {
   final TextEditingController _chatController = TextEditingController();
+  final ScrollController _chatScrollController = ScrollController();
   late final TabController _tabController;
   int _selectedTabIndex = 0;
   _ParticipantSort _participantSort = _ParticipantSort.name;
+  List<TripChatMessage> _messages = [];
+  bool _chatLoading = true;
+  RealtimeChannel? _chatChannel;
 
   @override
   void initState() {
@@ -37,7 +45,71 @@ class _ParticipantsScreenState extends State<ParticipantsScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ParticipantsProvider>().loadForTrip(widget.trip.id);
       context.read<ExpensesProvider>().loadForTrip(widget.trip.id);
+      _subscribeToChat();
+      _loadMessages(showLoading: true);
     });
+  }
+
+  void _subscribeToChat() {
+    unawaited(_chatChannel?.unsubscribe());
+    _chatChannel = Supabase.instance.client
+        .channel('trip-messages-${widget.trip.id}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'trip_id',
+            value: widget.trip.id,
+          ),
+          callback: (_) => _loadMessages(),
+        )
+        .subscribe();
+  }
+
+  Future<void> _loadMessages({bool showLoading = false}) async {
+    final shouldScrollToBottom = !_chatScrollController.hasClients ||
+        _chatScrollController.position.maxScrollExtent -
+                _chatScrollController.position.pixels <
+            100;
+    if (showLoading && mounted) setState(() => _chatLoading = true);
+    try {
+      final rows = await Supabase.instance.client
+          .from('messages')
+          .select('id, trip_id, author_id, body, created_at')
+          .eq('trip_id', widget.trip.id)
+          .order('created_at', ascending: true);
+      if (!mounted) return;
+      setState(() {
+        _messages = rows
+            .map((row) => TripChatMessage(
+                  id: row['id'] as String,
+                  tripId: row['trip_id'] as String,
+                  authorId: row['author_id'] as String,
+                  text: row['body'] as String? ?? '',
+                  createdAt: DateTime.parse(row['created_at'] as String),
+                ))
+            .toList();
+        _chatLoading = false;
+      });
+      if (shouldScrollToBottom) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!_chatScrollController.hasClients) return;
+          _chatScrollController.animateTo(
+            _chatScrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 220),
+            curve: Curves.easeOut,
+          );
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _chatLoading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось загрузить чат: $error')),
+      );
+    }
   }
 
   void _onTabChanged() {
@@ -51,24 +123,41 @@ class _ParticipantsScreenState extends State<ParticipantsScreen>
     if (oldWidget.trip.id != widget.trip.id) {
       context.read<ParticipantsProvider>().loadForTrip(widget.trip.id);
       context.read<ExpensesProvider>().loadForTrip(widget.trip.id);
+      _subscribeToChat();
+      _loadMessages(showLoading: true);
     }
   }
 
   @override
   void dispose() {
+    unawaited(_chatChannel?.unsubscribe());
     _chatController.dispose();
+    _chatScrollController.dispose();
     _tabController
       ..removeListener(_onTabChanged)
       ..dispose();
     super.dispose();
   }
 
-  void _sendChatMessage() {
+  Future<void> _sendChatMessage() async {
     final text = _chatController.text.trim();
     if (text.isEmpty) return;
-    TripChatStore.sendMessage(widget.trip.id, author: 'Вы', text: text);
-    _chatController.clear();
-    setState(() {});
+    final userId = context.read<AuthProvider>().currentUser?.id;
+    if (userId == null) return;
+    try {
+      await Supabase.instance.client.from('messages').insert({
+        'trip_id': widget.trip.id,
+        'author_id': userId,
+        'body': text,
+      });
+      _chatController.clear();
+      await _loadMessages();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не удалось отправить сообщение: $error')),
+      );
+    }
   }
 
   @override
@@ -144,7 +233,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen>
           return a.role.index.compareTo(b.role.index);
       }
     });
-    final messages = TripChatStore.messagesFor(widget.trip.id);
+    final messages = _messages;
 
     final participantsList = Column(
       children: [
@@ -243,12 +332,34 @@ class _ParticipantsScreenState extends State<ParticipantsScreen>
       children: [
         Expanded(
           child: ListView.builder(
+            controller: _chatScrollController,
             padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-            itemCount: messages.length,
+            itemCount: _chatLoading || messages.isEmpty ? 1 : messages.length,
             itemBuilder: (context, index) {
+              if (_chatLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (messages.isEmpty) {
+                return const Center(child: Text('Сообщений пока нет'));
+              }
               final message = messages[index];
+              final author = _messageAuthorName(
+                message,
+                participants,
+                currentUser?.id,
+                currentUser?.name,
+                currentUser?.email,
+                organizerId,
+              );
+              final localDate = message.createdAt.toLocal();
+              final now = DateTime.now();
+              final timeLabel = localDate.year == now.year &&
+                      localDate.month == now.month &&
+                      localDate.day == now.day
+                  ? DateFormat('HH:mm').format(localDate)
+                  : DateFormat('dd.MM HH:mm').format(localDate);
               return Align(
-                alignment: message.author == 'Вы'
+                alignment: message.authorId == currentUser?.id
                     ? Alignment.centerRight
                     : Alignment.centerLeft,
                 child: Container(
@@ -257,7 +368,7 @@ class _ParticipantsScreenState extends State<ParticipantsScreen>
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   constraints: const BoxConstraints(maxWidth: 300),
                   decoration: BoxDecoration(
-                    color: message.author == 'Вы'
+                    color: message.authorId == currentUser?.id
                         ? Theme.of(context).colorScheme.primaryContainer
                         : Theme.of(context).colorScheme.surfaceContainerHighest,
                     borderRadius: BorderRadius.circular(12),
@@ -266,11 +377,19 @@ class _ParticipantsScreenState extends State<ParticipantsScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        message.author,
+                        author,
                         style: Theme.of(context).textTheme.labelMedium,
                       ),
                       const SizedBox(height: 4),
                       Text(message.text),
+                      const SizedBox(height: 4),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          timeLabel,
+                          style: Theme.of(context).textTheme.labelSmall,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -338,6 +457,45 @@ class _ParticipantsScreenState extends State<ParticipantsScreen>
             )
           : null,
     );
+  }
+
+  String _messageAuthorName(
+    TripChatMessage message,
+    List<Participant> participants,
+    String? currentUserId,
+    String? currentUserName,
+    String? currentUserEmail,
+    String? organizerId,
+  ) {
+    for (final participant in participants) {
+      if (participant.userId == message.authorId &&
+          participant.name.trim().isNotEmpty) {
+        return participant.name.trim();
+      }
+      if (participant.id == message.authorId &&
+          participant.name.trim().isNotEmpty) {
+        return participant.name.trim();
+      }
+    }
+
+    if (message.authorId == currentUserId) {
+      if (currentUserName != null && currentUserName.trim().isNotEmpty) {
+        return currentUserName.trim();
+      }
+      final emailName = currentUserEmail?.split('@').first;
+      if (emailName != null && emailName.isNotEmpty) return emailName;
+    }
+
+    if (message.authorId == organizerId) {
+      final organizer = participants
+          .where((participant) =>
+              participant.role == TripParticipantRole.organizer &&
+              participant.name.trim().isNotEmpty)
+          .firstOrNull;
+      if (organizer != null) return organizer.name.trim();
+    }
+
+    return 'Пользователь';
   }
 }
 

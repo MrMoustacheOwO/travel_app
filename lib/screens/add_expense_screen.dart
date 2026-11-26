@@ -165,13 +165,15 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         ..comment = _commentController.text.trim()
         ..paidByParticipantId = isOrganizer ? _paidByParticipantId : self!.id
         ..participantIds = isOrganizer ? _participantIds.toList() : [self!.id]
-        ..ticket = ticket;
+        ..ticket = ticket
+        ..createdBy = user?.id
+        ..scope = isOrganizer ? 'shared' : 'private';
       await provider.updateExpense(expense);
     } else {
       final paidByParticipantId = isOrganizer ? _paidByParticipantId : self!.id;
-      final confirmation = paidByParticipantId == null
-          ? ExpenseConfirmation.confirmed
-          : ExpenseConfirmation.pending;
+      final confirmation = isOrganizer && paidByParticipantId != null
+          ? ExpenseConfirmation.pending
+          : ExpenseConfirmation.confirmed;
       await provider.addExpense(
         activityId: _activityId,
         category: _category,
@@ -184,6 +186,8 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
         participantIds: isOrganizer ? _participantIds.toList() : [self!.id],
         ticket: ticket,
         confirmation: confirmation,
+        createdBy: user?.id,
+        scope: isOrganizer ? 'shared' : 'private',
       );
     }
 
@@ -211,6 +215,13 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
               isOrganizer: isOrganizer,
               participantIds: activity.participantIds,
               currentParticipantId: self?.id,
+              currentUserId: user?.id,
+              organizerId: context
+                  .read<TripsProvider>()
+                  .tripById(widget.tripId)
+                  ?.organizerId,
+              createdBy: activity.createdBy,
+              scope: activity.scope,
             ))
         .toList();
     final df = DateFormat('dd.MM.yyyy');

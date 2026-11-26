@@ -19,6 +19,8 @@ class Expense {
   ExpenseConfirmation confirmation;
   bool synced;
   String? remoteId;
+  String? createdBy;
+  String scope;
 
   Expense({
     required this.id,
@@ -35,6 +37,8 @@ class Expense {
     this.confirmation = ExpenseConfirmation.confirmed,
     this.synced = false,
     this.remoteId,
+    this.createdBy,
+    this.scope = 'shared',
   })  : participantIds = participantIds ?? [],
         ticket = ticket ?? TicketInfo();
 
@@ -55,6 +59,8 @@ class Expense {
       ...ticket.toMap(),
       'synced': synced ? 1 : 0,
       'remote_id': remoteId,
+      'created_by': createdBy,
+      'scope': scope,
     };
   }
 
@@ -76,6 +82,8 @@ class Expense {
       ),
       synced: (map['synced'] as int? ?? 0) == 1,
       remoteId: map['remote_id'] as String?,
+      createdBy: map['created_by'] as String?,
+      scope: map['scope'] as String? ?? 'shared',
     );
   }
 

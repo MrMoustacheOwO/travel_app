@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/participant.dart';
-import '../providers/auth_provider.dart';
+import '../data/supabase_sync_service.dart';
 import '../providers/participants_provider.dart';
 
 class AddParticipantScreen extends StatefulWidget {
@@ -20,9 +20,6 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
   final _formKey = GlobalKey<FormState>();
   late final TextEditingController _nameController;
   late final TextEditingController _contactController;
-  late final TextEditingController _notesController;
-  late ParticipationStatus _status;
-  late TripParticipantRole _role;
   bool _saving = false;
 
   bool get _isEditing => widget.participant != null;
@@ -34,16 +31,12 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
     _nameController = TextEditingController(text: participant?.name ?? '');
     _contactController =
         TextEditingController(text: participant?.contact ?? '');
-    _notesController = TextEditingController(text: participant?.notes ?? '');
-    _status = participant?.status ?? ParticipationStatus.confirmed;
-    _role = participant?.role ?? TripParticipantRole.participant;
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _contactController.dispose();
-    _notesController.dispose();
     super.dispose();
   }
 
@@ -51,28 +44,29 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     final provider = context.read<ParticipantsProvider>();
-    final user = context.read<AuthProvider>().currentUser;
     final contact = _contactController.text.trim();
-    final linkedUserId = widget.participant?.userId ??
-        (contact.toLowerCase() == user?.email.toLowerCase() ? user?.id : null);
-    if (_isEditing) {
-      final participant = widget.participant!
-        ..name = _nameController.text.trim()
-        ..contact = _contactController.text.trim()
-        ..notes = _notesController.text.trim()
-        ..status = _status
-        ..role = _role
-        ..userId = linkedUserId;
-      await provider.updateParticipant(participant);
-    } else {
-      await provider.addParticipant(
-        name: _nameController.text.trim(),
-        contact: _contactController.text.trim(),
-        notes: _notesController.text.trim(),
-        userId: linkedUserId,
-        status: _status,
-        role: _role,
-      );
+    try {
+      if (!_isEditing) {
+        await context.read<SupabaseSyncService>().inviteTripMember(
+              tripId: widget.tripId,
+              email: contact,
+              displayName: _nameController.text.trim(),
+            );
+        await provider.loadForTrip(widget.tripId);
+      } else if (_isEditing) {
+        final participant = widget.participant!
+          ..name = _nameController.text.trim()
+          ..contact = contact;
+        await provider.updateParticipant(participant);
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() => _saving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Не удалось отправить приглашение: $error')),
+        );
+      }
+      return;
     }
     if (!mounted) return;
     Navigator.of(context).pop();
@@ -106,52 +100,19 @@ class _AddParticipantScreenState extends State<AddParticipantScreen> {
             const SizedBox(height: 16),
             TextFormField(
               controller: _contactController,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [AutofillHints.email],
               decoration: const InputDecoration(
-                labelText: 'Контактные данные',
+                labelText: 'Электронная почта',
                 border: OutlineInputBorder(),
               ),
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<ParticipationStatus>(
-              key: ValueKey(_status),
-              initialValue: _status,
-              decoration: const InputDecoration(
-                labelText: 'Статус участия',
-                border: OutlineInputBorder(),
-              ),
-              items: ParticipationStatus.values
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s.label)))
-                  .toList(),
-              onChanged: (v) {
-                if (v != null) setState(() => _status = v);
+              validator: (value) {
+                final email = value?.trim() ?? '';
+                if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(email)) {
+                  return 'Введите корректный адрес электронной почты';
+                }
+                return null;
               },
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<TripParticipantRole>(
-              key: ValueKey(_role),
-              initialValue: _role,
-              decoration: const InputDecoration(
-                labelText: 'Роль в поездке',
-                border: OutlineInputBorder(),
-              ),
-              items: TripParticipantRole.values
-                  .map((role) => DropdownMenuItem(
-                        value: role,
-                        child: Text(role.label),
-                      ))
-                  .toList(),
-              onChanged: (v) {
-                if (v != null) setState(() => _role = v);
-              },
-            ),
-            const SizedBox(height: 16),
-            TextFormField(
-              controller: _notesController,
-              maxLines: 3,
-              decoration: const InputDecoration(
-                labelText: 'Дополнительные сведения об участнике',
-                border: OutlineInputBorder(),
-              ),
             ),
             const SizedBox(height: 24),
             FilledButton(

@@ -13,7 +13,7 @@ class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._internal();
 
   static const _dbName = 'travel_expenses.db';
-  static const _dbVersion = 9;
+  static const _dbVersion = 10;
 
   Database? _database;
 
@@ -75,6 +75,8 @@ class DatabaseHelper {
         created_at TEXT NOT NULL,
         synced INTEGER NOT NULL DEFAULT 0,
         remote_id TEXT,
+        membership_id TEXT,
+        membership_status TEXT,
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
       )
     ''');
@@ -110,6 +112,8 @@ class DatabaseHelper {
         transport_number TEXT,
         departure_date TEXT,
         arrival_date TEXT,
+        created_by TEXT,
+        scope TEXT NOT NULL DEFAULT 'shared',
         synced INTEGER NOT NULL DEFAULT 0,
         remote_id TEXT,
         FOREIGN KEY (trip_id) REFERENCES trips (id) ON DELETE CASCADE
@@ -133,6 +137,8 @@ class DatabaseHelper {
         transport_number TEXT,
         departure_date TEXT,
         arrival_date TEXT,
+        created_by TEXT,
+        scope TEXT NOT NULL DEFAULT 'shared',
         synced INTEGER NOT NULL DEFAULT 0,
         remote_id TEXT,
         FOREIGN KEY (trip_id) REFERENCES trips (id) ON DELETE CASCADE,
@@ -239,6 +245,18 @@ class DatabaseHelper {
       await db.execute('ALTER TABLE trips ADD COLUMN organizer_id TEXT');
       await db.execute('ALTER TABLE participants ADD COLUMN user_id TEXT');
       await db.execute('UPDATE trips SET organizer_id = user_id');
+    }
+    if (oldVersion < 10) {
+      await db.execute('ALTER TABLE trips ADD COLUMN membership_id TEXT');
+      await db.execute('ALTER TABLE trips ADD COLUMN membership_status TEXT');
+      await db.execute('ALTER TABLE activities ADD COLUMN created_by TEXT');
+      await db.execute(
+        "ALTER TABLE activities ADD COLUMN scope TEXT NOT NULL DEFAULT 'shared'",
+      );
+      await db.execute('ALTER TABLE expenses ADD COLUMN created_by TEXT');
+      await db.execute(
+        "ALTER TABLE expenses ADD COLUMN scope TEXT NOT NULL DEFAULT 'shared'",
+      );
     }
   }
 

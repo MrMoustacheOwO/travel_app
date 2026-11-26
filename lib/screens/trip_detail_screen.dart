@@ -65,6 +65,10 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
               isOrganizer: isOrganizer,
               participantIds: activity.participantIds,
               currentParticipantId: self?.id,
+              currentUserId: user?.id,
+              organizerId: widget.trip.organizerId ?? widget.trip.userId,
+              createdBy: activity.createdBy,
+              scope: activity.scope,
             ) &&
             (_selectedCategories.isEmpty ||
                 _selectedCategories.contains(activity.category)) &&
@@ -126,22 +130,28 @@ class _TripDetailScreenState extends State<TripDetailScreen> {
                             final activity = activities[index];
                             return ActivityTile(
                               activity: activity,
-                              participants: participants,
                               onTap: () {
                                 Navigator.of(context).push(
                                   MaterialPageRoute(
                                     builder: (_) => AddActivityScreen(
                                       tripId: widget.trip.id,
                                       activity: activity,
-                                      readOnly: !isOrganizer &&
-                                          !activity.participantIds
-                                              .contains(self?.id),
+                                      readOnly: !canManageTripRecord(
+                                        isOrganizer: isOrganizer,
+                                        currentUserId: user?.id,
+                                        createdBy: activity.createdBy,
+                                        scope: activity.scope,
+                                      ),
                                     ),
                                   ),
                                 );
                               },
-                              onDelete: isOrganizer ||
-                                      activity.participantIds.contains(self?.id)
+                              onDelete: canManageTripRecord(
+                                isOrganizer: isOrganizer,
+                                currentUserId: user?.id,
+                                createdBy: activity.createdBy,
+                                scope: activity.scope,
+                              )
                                   ? () async {
                                       final ok = await confirmDelete(
                                         context,

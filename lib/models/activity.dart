@@ -16,6 +16,8 @@ class TripActivity {
   List<String> participantIds;
   bool synced;
   String? remoteId;
+  String? createdBy;
+  String scope;
 
   TripActivity({
     required this.id,
@@ -32,6 +34,8 @@ class TripActivity {
     List<String>? participantIds,
     this.synced = false,
     this.remoteId,
+    this.createdBy,
+    this.scope = 'shared',
   })  : ticket = ticket ?? TicketInfo(),
         participantIds = participantIds ?? [];
 
@@ -53,6 +57,8 @@ class TripActivity {
       ...ticket.toMap(),
       'synced': synced ? 1 : 0,
       'remote_id': remoteId,
+      'created_by': createdBy,
+      'scope': scope,
     };
   }
 
@@ -71,6 +77,8 @@ class TripActivity {
       ticket: TicketInfo.fromMap(map),
       synced: (map['synced'] as int? ?? 0) == 1,
       remoteId: map['remote_id'] as String?,
+      createdBy: map['created_by'] as String?,
+      scope: map['scope'] as String? ?? 'shared',
     );
   }
 

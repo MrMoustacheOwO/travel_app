@@ -2,20 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../models/activity.dart';
-import '../models/participant.dart';
-import '../widgets/participant_multi_select.dart';
 import '../widgets/ticket_form.dart';
 
 class ActivityTile extends StatelessWidget {
   final TripActivity activity;
-  final List<Participant> participants;
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
 
   const ActivityTile({
     super.key,
     required this.activity,
-    this.participants = const [],
     this.onTap,
     this.onDelete,
   });
@@ -23,7 +19,6 @@ class ActivityTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final df = DateFormat('dd.MM.yyyy HH:mm');
-    final names = participantNames(participants, activity.participantIds);
     final colorScheme = Theme.of(context).colorScheme;
     return Card(
       color: activity.isMain ? colorScheme.primaryContainer : null,
@@ -36,17 +31,17 @@ class ActivityTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-                CircleAvatar(
+              CircleAvatar(
                 backgroundColor: activity.isMain
-                  ? colorScheme.primary
-                  : colorScheme.secondaryContainer,
+                    ? colorScheme.primary
+                    : colorScheme.secondaryContainer,
                 foregroundColor: activity.isMain
-                  ? colorScheme.onPrimary
-                  : colorScheme.onSecondaryContainer,
+                    ? colorScheme.onPrimary
+                    : colorScheme.onSecondaryContainer,
                 child: Text(activity.isMain
-                  ? '\u2605'
-                  : activity.category.label.substring(0, 1)),
-                ),
+                    ? '\u2605'
+                    : activity.category.label.substring(0, 1)),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -61,13 +56,12 @@ class ActivityTile extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           )),
                     Text(
-                      '${df.format(activity.dateTime)}\n${activity.category.label}'
+                      '${df.format(activity.dateTime)}\n'
+                      '${activity.isTickets ? activity.ticket.transportKind.label : activity.category.label}'
                       '${activity.location.isNotEmpty ? ' · ${activity.location}' : ''}',
                     ),
-                    if (names.isNotEmpty)
-                      // Text('Участники: $names',
-                      //     style: Theme.of(context).textTheme.bodySmall),
-                    if (activity.isTickets) TicketDetailsText(ticket: activity.ticket),
+                    if (activity.isTickets)
+                      TicketDetailsText(ticket: activity.ticket),
                     Text(
                       '${activity.cost.toStringAsFixed(0)} ₽',
                       style: const TextStyle(fontWeight: FontWeight.bold),

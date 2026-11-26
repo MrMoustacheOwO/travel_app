@@ -50,16 +50,14 @@ class SupabaseSyncService extends ChangeNotifier {
     notifyListeners();
     try {
       await _syncData();
-    } on TimeoutException {
-      _error = 'Не удалось подключиться к базе данных за 10 секунд.';
-    } on AuthException catch (error) {
-      _error = 'Ошибка авторизации Supabase: ${error.message}';
-    } on PostgrestException catch (error) {
-      _error = 'Ошибка базы данных: ${error.message}';
-    } on SocketException {
-      _error = 'Нет подключения к интернету. Данные сохранены на устройстве.';
     } catch (error) {
-      _error = 'Не удалось синхронизировать данные: $error';
+      try {
+        await _forceSyncFromServer();
+      } catch (recoveryError) {
+        _error = '${_formatSyncError(error)} '
+            'Повторная загрузка с сервера также не удалась: '
+            '${_formatSyncError(recoveryError)}';
+      }
     } finally {
       _syncing = false;
       notifyListeners();
@@ -70,16 +68,52 @@ class SupabaseSyncService extends ChangeNotifier {
     }
   }
 
-  Future<void> _syncData() async {
+  Future<void> inviteTripMember({
+    required String tripId,
+    required String email,
+    required String displayName,
+    String notes = '',
+  }) async {
+    await _client.rpc('invite_trip_member', params: {
+      'p_trip_id': tripId,
+      'p_email': email.trim().toLowerCase(),
+      'p_display_name': displayName.trim(),
+      'p_notes': notes.trim(),
+    }).timeout(SupabaseConfig.requestTimeout);
+    await syncNow();
+  }
+
+  Future<void> respondToTripInvitation({
+    required String tripId,
+    required String membershipId,
+    required bool accept,
+  }) async {
+    await _client.rpc('respond_to_trip_invitation', params: {
+      'p_membership_id': membershipId,
+      'p_accept': accept,
+    }).timeout(SupabaseConfig.requestTimeout);
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return;
+    final db = await _databaseHelper.database;
+    await db.update(
+      'trips',
+      {'membership_status': accept ? 'confirmed' : 'declined'},
+      where: 'id = ? AND user_id = ?',
+      whereArgs: [tripId, userId],
+    );
+    if (accept) await syncNow();
+  }
+
+  Future<void> _syncData({bool pullOnly = false}) async {
     final user = _client.auth.currentUser;
     if (user == null) return;
 
     final db = await _databaseHelper.database;
-    await _claimLegacyCache(db, user);
-    await _syncProfile(db, user);
-    await _syncPendingDeletions(db);
+    if (!pullOnly) await _claimLegacyCache(db, user);
+    await _syncProfile(db, user, pullOnly: pullOnly);
+    if (!pullOnly) await _syncPendingDeletions(db);
 
-    await _pushTrips(db, user);
+    if (!pullOnly) await _pushTrips(db, user);
     final remoteTrips = await _client
         .from('trips')
         .select()
@@ -100,13 +134,201 @@ class SupabaseSyncService extends ChangeNotifier {
     );
     tripIds.addAll(localTrips.map((row) => row['id'] as String));
     for (final tripId in tripIds) {
-      await _syncParticipants(db, tripId);
-      await _syncActivities(db, tripId);
-      await _syncExpenses(db, tripId, user.id);
+      await _syncParticipants(db, tripId, pushLocal: !pullOnly);
+      await _syncActivities(db, tripId, pushLocal: !pullOnly);
+      await _syncExpenses(db, tripId, user.id, pushLocal: !pullOnly);
     }
   }
 
-  Future<void> _syncProfile(Database db, User user) async {
+  Future<void> _forceSyncFromServer() async {
+    final user = _client.auth.currentUser;
+    if (user == null) return;
+
+    final db = await _databaseHelper.database;
+    final tripRows = await db.query(
+      'trips',
+      where: 'user_id = ?',
+      whereArgs: [user.id],
+    );
+    final tripIds = tripRows.map((row) => row['id'] as String).toList();
+    final snapshot = await _captureLocalCache(db, user.id, tripIds);
+
+    try {
+      await db.transaction((transaction) async {
+        await _clearLocalTripCache(transaction, tripIds);
+        await transaction.delete(
+          'pending_deletions',
+          where: 'user_id = ?',
+          whereArgs: [user.id],
+        );
+        await transaction.update(
+          'profile',
+          {'synced': 1},
+          where: 'user_id = ?',
+          whereArgs: [user.id],
+        );
+      });
+      await _syncData(pullOnly: true);
+    } catch (_) {
+      await _restoreLocalCache(db, user.id, snapshot);
+      rethrow;
+    }
+  }
+
+  Future<Map<String, List<Map<String, Object?>>>> _captureLocalCache(
+    Database db,
+    String userId,
+    List<String> tripIds,
+  ) async {
+    final snapshot = <String, List<Map<String, Object?>>>{};
+    snapshot['trips'] = await db.query(
+      'trips',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+    snapshot['pending_deletions'] = await db.query(
+      'pending_deletions',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+    snapshot['profile'] = await db.query(
+      'profile',
+      where: 'user_id = ?',
+      whereArgs: [userId],
+    );
+    if (tripIds.isEmpty) return snapshot;
+
+    final placeholders = List.filled(tripIds.length, '?').join(', ');
+    for (final table in ['participants', 'activities', 'expenses']) {
+      snapshot[table] = await db.query(
+        table,
+        where: 'trip_id IN ($placeholders)',
+        whereArgs: tripIds,
+      );
+    }
+    final activityIds =
+        snapshot['activities']!.map((row) => row['id'] as String).toList();
+    final expenseIds =
+        snapshot['expenses']!.map((row) => row['id'] as String).toList();
+    snapshot['activity_participants'] = activityIds.isEmpty
+        ? []
+        : await db.query(
+            'activity_participants',
+            where:
+                'activity_id IN (${List.filled(activityIds.length, '?').join(', ')})',
+            whereArgs: activityIds,
+          );
+    snapshot['expense_participants'] = expenseIds.isEmpty
+        ? []
+        : await db.query(
+            'expense_participants',
+            where:
+                'expense_id IN (${List.filled(expenseIds.length, '?').join(', ')})',
+            whereArgs: expenseIds,
+          );
+    return snapshot;
+  }
+
+  Future<void> _clearLocalTripCache(
+    Transaction transaction,
+    List<String> tripIds,
+  ) async {
+    if (tripIds.isEmpty) return;
+    final placeholders = List.filled(tripIds.length, '?').join(', ');
+    await transaction.delete(
+      'activity_participants',
+      where: 'activity_id IN '
+          '(SELECT id FROM activities WHERE trip_id IN ($placeholders))',
+      whereArgs: tripIds,
+    );
+    await transaction.delete(
+      'expense_participants',
+      where: 'expense_id IN '
+          '(SELECT id FROM expenses WHERE trip_id IN ($placeholders))',
+      whereArgs: tripIds,
+    );
+    for (final table in ['expenses', 'activities', 'participants']) {
+      await transaction.delete(
+        table,
+        where: 'trip_id IN ($placeholders)',
+        whereArgs: tripIds,
+      );
+    }
+    await transaction.delete(
+      'trips',
+      where: 'id IN ($placeholders)',
+      whereArgs: tripIds,
+    );
+  }
+
+  Future<void> _restoreLocalCache(
+    Database db,
+    String userId,
+    Map<String, List<Map<String, Object?>>> snapshot,
+  ) async {
+    await db.transaction((transaction) async {
+      final currentTrips = await transaction.query(
+        'trips',
+        columns: ['id'],
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+      await _clearLocalTripCache(
+        transaction,
+        currentTrips.map((row) => row['id'] as String).toList(),
+      );
+      await transaction.delete(
+        'pending_deletions',
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+      await transaction.delete(
+        'profile',
+        where: 'user_id = ?',
+        whereArgs: [userId],
+      );
+      for (final table in [
+        'trips',
+        'participants',
+        'activities',
+        'expenses',
+        'activity_participants',
+        'expense_participants',
+        'pending_deletions',
+        'profile',
+      ]) {
+        for (final row in snapshot[table] ?? const <Map<String, Object?>>[]) {
+          await transaction.insert(
+            table,
+            row,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+      }
+    });
+  }
+
+  String _formatSyncError(Object error) {
+    if (error is TimeoutException) {
+      return 'Не удалось подключиться к базе данных за 10 секунд.';
+    }
+    if (error is AuthException) {
+      return 'Ошибка авторизации Supabase: ${error.message}';
+    }
+    if (error is PostgrestException) {
+      return 'Ошибка базы данных: ${error.message}';
+    }
+    if (error is SocketException) {
+      return 'Нет подключения к интернету. Данные сохранены на устройстве.';
+    }
+    return 'Не удалось синхронизировать данные: $error';
+  }
+
+  Future<void> _syncProfile(
+    Database db,
+    User user, {
+    bool pullOnly = false,
+  }) async {
     final rows = await db.query(
       'profile',
       where: 'user_id = ?',
@@ -129,8 +351,9 @@ class SupabaseSyncService extends ChangeNotifier {
         .eq('id', user.id)
         .maybeSingle()
         .timeout(SupabaseConfig.requestTimeout);
-    final localProfileNeedsUpload =
-        rows.isNotEmpty && (rows.first['synced'] as int? ?? 0) == 0;
+    final localProfileNeedsUpload = !pullOnly &&
+        rows.isNotEmpty &&
+        (rows.first['synced'] as int? ?? 0) == 0;
     if (remote == null) {
       throw StateError(
         'Профиль Supabase не найден. Проверьте триггер on_auth_user_created.',
@@ -264,6 +487,15 @@ class SupabaseSyncService extends ChangeNotifier {
     final id = remote['id'] as String;
     final existing = await _localRow(db, 'trips', id);
     if (existing != null && (existing['synced'] as int? ?? 0) == 0) return;
+    final membership = remote['organizer_id'] == userId
+        ? null
+        : await _client
+            .from('trip_members')
+            .select('id, status')
+            .eq('trip_id', id)
+            .eq('user_id', userId)
+            .maybeSingle()
+            .timeout(SupabaseConfig.requestTimeout);
     final data = _appData(remote['app_data']);
     await _putLocal(db, 'trips', {
       'id': id,
@@ -280,15 +512,23 @@ class SupabaseSyncService extends ChangeNotifier {
           DateTime.now().toIso8601String(),
       'synced': 1,
       'remote_id': id,
+      'membership_id': membership?['id'] as String?,
+      'membership_status': membership?['status'] as String?,
     });
   }
 
-  Future<void> _syncParticipants(Database db, String tripId) async {
-    final localRows = await db.query(
-      'participants',
-      where: 'trip_id = ? AND synced = 0',
-      whereArgs: [tripId],
-    );
+  Future<void> _syncParticipants(
+    Database db,
+    String tripId, {
+    bool pushLocal = true,
+  }) async {
+    final localRows = pushLocal
+        ? await db.query(
+            'participants',
+            where: 'trip_id = ? AND synced = 0',
+            whereArgs: [tripId],
+          )
+        : <Map<String, Object?>>[];
     for (final row in localRows) {
       await _client.from('trip_members').upsert({
         'id': row['id'],
@@ -341,13 +581,22 @@ class SupabaseSyncService extends ChangeNotifier {
     }
   }
 
-  Future<void> _syncActivities(Database db, String tripId) async {
-    final localRows = await db.query(
-      'activities',
-      where: 'trip_id = ? AND synced = 0',
-      whereArgs: [tripId],
-    );
+  Future<void> _syncActivities(
+    Database db,
+    String tripId, {
+    bool pushLocal = true,
+  }) async {
+    final localRows = pushLocal
+        ? await db.query(
+            'activities',
+            where: 'trip_id = ? AND synced = 0',
+            whereArgs: [tripId],
+          )
+        : <Map<String, Object?>>[];
     for (final row in localRows) {
+      final ownerId =
+          row['created_by'] as String? ?? _client.auth.currentUser?.id;
+      final scope = await _scopeForUpload(db, tripId, row, ownerId);
       final participantRows = await db.query(
         'activity_participants',
         where: 'activity_id = ?',
@@ -376,11 +625,18 @@ class SupabaseSyncService extends ChangeNotifier {
         'starts_at': row['date_time'],
         'location': row['location'],
         'notes': row['description'],
+        'created_by': ownerId,
+        'scope': scope,
         'app_data': appData,
       }, onConflict: 'id').timeout(SupabaseConfig.requestTimeout);
       await db.update(
         'activities',
-        {'synced': 1, 'remote_id': row['id']},
+        {
+          'synced': 1,
+          'remote_id': row['id'],
+          'created_by': ownerId,
+          'scope': scope,
+        },
         where: 'id = ?',
         whereArgs: [row['id']],
       );
@@ -418,6 +674,8 @@ class SupabaseSyncService extends ChangeNotifier {
         'arrival_date': ticket['arrival_date'] as String?,
         'synced': 1,
         'remote_id': id,
+        'created_by': remote['created_by'] as String?,
+        'scope': remote['scope'] as String? ?? 'shared',
       });
       await _replaceLinks(
         db,
@@ -430,13 +688,22 @@ class SupabaseSyncService extends ChangeNotifier {
     }
   }
 
-  Future<void> _syncExpenses(Database db, String tripId, String userId) async {
-    final localRows = await db.query(
-      'expenses',
-      where: 'trip_id = ? AND synced = 0',
-      whereArgs: [tripId],
-    );
+  Future<void> _syncExpenses(
+    Database db,
+    String tripId,
+    String userId, {
+    bool pushLocal = true,
+  }) async {
+    final localRows = pushLocal
+        ? await db.query(
+            'expenses',
+            where: 'trip_id = ? AND synced = 0',
+            whereArgs: [tripId],
+          )
+        : <Map<String, Object?>>[];
     for (final row in localRows) {
+      final ownerId = row['created_by'] as String? ?? userId;
+      final scope = await _scopeForUpload(db, tripId, row, ownerId);
       var paidBy = row['paid_by_participant_id'] as String?;
       if (paidBy == null) {
         final participants = await db.query(
@@ -491,15 +758,21 @@ class SupabaseSyncService extends ChangeNotifier {
         'id': row['id'],
         'trip_id': tripId,
         'paid_by': paidBy,
-        'created_by': userId,
         'amount': row['amount'],
+        'scope': scope,
+        'created_by': ownerId,
         'description': row['comment'],
         'spent_at': row['date'],
         'app_data': appData,
       }, onConflict: 'id').timeout(SupabaseConfig.requestTimeout);
       await db.update(
         'expenses',
-        {'synced': 1, 'remote_id': row['id']},
+        {
+          'synced': 1,
+          'remote_id': row['id'],
+          'created_by': ownerId,
+          'scope': scope,
+        },
         where: 'id = ?',
         whereArgs: [row['id']],
       );
@@ -537,6 +810,8 @@ class SupabaseSyncService extends ChangeNotifier {
         'arrival_date': ticket['arrival_date'] as String?,
         'synced': 1,
         'remote_id': id,
+        'created_by': remote['created_by'] as String?,
+        'scope': remote['scope']?.toString() ?? 'shared',
       });
       await _replaceLinks(
         db,
@@ -601,6 +876,21 @@ class SupabaseSyncService extends ChangeNotifier {
         relatedColumn: relatedId,
       });
     }
+  }
+
+  Future<String> _scopeForUpload(
+    Database db,
+    String tripId,
+    Map<String, Object?> row,
+    String? ownerId,
+  ) async {
+    if (row['created_by'] != null) {
+      return row['scope'] as String? ?? 'shared';
+    }
+    final trip = await _localRow(db, 'trips', tripId);
+    final organizerId =
+        trip?['organizer_id'] as String? ?? trip?['user_id'] as String?;
+    return ownerId != null && ownerId == organizerId ? 'shared' : 'private';
   }
 
   Future<Map<String, Object?>?> _localRow(

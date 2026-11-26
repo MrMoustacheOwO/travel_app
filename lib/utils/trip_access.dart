@@ -6,6 +6,16 @@ bool isTripOrganizer(Trip? trip, String? userId) {
   return (trip.organizerId ?? trip.userId) == userId;
 }
 
+bool canManageTripRecord({
+  required bool isOrganizer,
+  required String? currentUserId,
+  required String? createdBy,
+  required String scope,
+}) {
+  return (currentUserId != null && createdBy == currentUserId) ||
+      (isOrganizer && createdBy == null && scope == 'shared');
+}
+
 Participant? participantForUser(
   List<Participant> participants, {
   required String? userId,
@@ -31,8 +41,16 @@ bool isRecordVisibleToUser({
   required bool isOrganizer,
   required List<String> participantIds,
   required String? currentParticipantId,
+  String? currentUserId,
+  String? organizerId,
+  String? createdBy,
+  String scope = 'shared',
 }) {
-  return isOrganizer ||
-      (currentParticipantId != null &&
-          participantIds.contains(currentParticipantId));
+  if (scope == 'private') {
+    return currentUserId != null && createdBy == currentUserId;
+  }
+  if (currentUserId != null && createdBy == currentUserId) return true;
+  if (isOrganizer) return createdBy == null;
+  return currentParticipantId != null &&
+      participantIds.contains(currentParticipantId);
 }

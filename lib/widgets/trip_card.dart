@@ -6,9 +6,11 @@ import '../models/trip.dart';
 class TripCard extends StatelessWidget {
   final Trip trip;
   final int participantCount;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+  final VoidCallback? onAccept;
+  final VoidCallback? onDecline;
 
   const TripCard({
     super.key,
@@ -17,6 +19,8 @@ class TripCard extends StatelessWidget {
     required this.onTap,
     this.onEdit,
     required this.onDelete,
+    this.onAccept,
+    this.onDecline,
   });
 
   Color _statusColor() {
@@ -59,11 +63,31 @@ class TripCard extends StatelessWidget {
                     Text('Участников: $participantCount'),
                     const SizedBox(height: 6),
                     Chip(
-                      label: Text(trip.status.label),
-                      backgroundColor: _statusColor(),
+                      label: Text(trip.membershipStatus == 'invited'
+                          ? 'Ожидает ответа'
+                          : trip.status.label),
+                      backgroundColor: trip.membershipStatus == 'invited'
+                          ? Theme.of(context).colorScheme.tertiaryContainer
+                          : _statusColor(),
                       visualDensity: VisualDensity.compact,
                       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                     ),
+                    if (trip.membershipStatus == 'invited')
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          TextButton.icon(
+                            onPressed: onAccept,
+                            icon: const Icon(Icons.check),
+                            label: const Text('Принять'),
+                          ),
+                          TextButton.icon(
+                            onPressed: onDecline,
+                            icon: const Icon(Icons.close),
+                            label: const Text('Отказаться'),
+                          ),
+                        ],
+                      ),
                   ],
                 ),
               ),

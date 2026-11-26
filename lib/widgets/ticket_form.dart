@@ -15,7 +15,8 @@ class TicketForm extends StatelessWidget {
     this.requiredFields = true,
   });
 
-  Future<void> _pickDateTime(BuildContext context, {required bool isDeparture}) async {
+  Future<void> _pickDateTime(BuildContext context,
+      {required bool isDeparture}) async {
     final current = isDeparture ? ticket.departureDate : ticket.arrivalDate;
     final initial = current ?? DateTime.now();
     final date = await showDatePicker(
@@ -30,7 +31,8 @@ class TicketForm extends StatelessWidget {
       initialTime: TimeOfDay.fromDateTime(initial),
     );
     if (time == null) return;
-    final value = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    final value =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute);
     final next = ticket.copy();
     if (isDeparture) {
       next.departureDate = value;
@@ -55,7 +57,7 @@ class TicketForm extends StatelessWidget {
           key: ValueKey(ticket.transportKind),
           initialValue: ticket.transportKind,
           decoration: const InputDecoration(
-            labelText: 'Тип транспорта',
+            labelText: 'Категория транспорта',
             border: OutlineInputBorder(),
           ),
           items: TransportKind.values
@@ -69,29 +71,13 @@ class TicketForm extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         TextFormField(
-          initialValue: ticket.ticketNumber,
-          decoration: const InputDecoration(
-            labelText: 'Номер билета',
-            border: OutlineInputBorder(),
-          ),
-          validator: requiredFields
-              ? (v) => (v == null || v.trim().isEmpty) ? 'Укажите номер билета' : null
-              : null,
-          onChanged: (v) {
-            ticket.ticketNumber = v;
-            onChanged(ticket);
-          },
-        ),
-        const SizedBox(height: 16),
-        TextFormField(
           initialValue: ticket.transportNumber,
           decoration: const InputDecoration(
-            labelText: 'Номер транспорта (рейс, поезд, автобус)',
+            labelText: 'Номер',
             border: OutlineInputBorder(),
           ),
           validator: requiredFields
-              ? (v) =>
-                  (v == null || v.trim().isEmpty) ? 'Укажите номер транспорта' : null
+              ? (v) => (v == null || v.trim().isEmpty) ? 'Укажите номер' : null
               : null,
           onChanged: (v) {
             ticket.transportNumber = v;
@@ -133,12 +119,12 @@ class TicketDetailsText extends StatelessWidget {
     if (!ticket.hasData) return const SizedBox.shrink();
     final df = DateFormat('dd.MM.yyyy HH:mm');
     final lines = <String>[
-      ticket.transportKind.label,
-      if (ticket.ticketNumber.trim().isNotEmpty) '№ билета: ${ticket.ticketNumber}',
       if (ticket.transportNumber.trim().isNotEmpty)
-        '№ транспорта: ${ticket.transportNumber}',
-      if (ticket.departureDate != null) 'Убывание: ${df.format(ticket.departureDate!)}',
-      if (ticket.arrivalDate != null) 'Прибытие: ${df.format(ticket.arrivalDate!)}',
+        'Номер: ${ticket.transportNumber}',
+      if (ticket.departureDate != null)
+        'Убывание: ${df.format(ticket.departureDate!)}',
+      if (ticket.arrivalDate != null)
+        'Прибытие: ${df.format(ticket.arrivalDate!)}',
     ];
     return Padding(
       padding: const EdgeInsets.only(top: 4),

@@ -3,13 +3,11 @@ import 'package:intl/intl.dart';
 
 import '../models/expense.dart';
 import '../models/participant.dart';
-import '../widgets/participant_multi_select.dart';
 import '../widgets/ticket_form.dart';
 
 class ExpenseTile extends StatelessWidget {
   final Expense expense;
   final Participant? paidBy;
-  final List<Participant> participants;
   final VoidCallback? onTap;
   final VoidCallback? onDelete;
   final VoidCallback? onConfirm;
@@ -19,7 +17,6 @@ class ExpenseTile extends StatelessWidget {
     super.key,
     required this.expense,
     this.paidBy,
-    this.participants = const [],
     this.onTap,
     this.onDelete,
     this.onConfirm,
@@ -31,7 +28,6 @@ class ExpenseTile extends StatelessWidget {
     final df = DateFormat('dd.MM.yyyy');
     final isPending = expense.confirmation == ExpenseConfirmation.pending;
     final isRejected = expense.confirmation == ExpenseConfirmation.rejected;
-    final names = participantNames(participants, expense.participantIds);
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -51,12 +47,12 @@ class ExpenseTile extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(expense.name,
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        Text('${expense.category.label} · ${df.format(expense.date)}'),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        Text(
+                          '${expense.isTickets ? expense.ticket.transportKind.label : expense.category.label} · ${df.format(expense.date)}',
+                        ),
                         if (paidBy != null) Text('Оплатил: ${paidBy!.name}'),
-                        if (names.isNotEmpty)
-                          Text('Участники: $names',
-                              style: Theme.of(context).textTheme.bodySmall),
                         if (expense.comment.isNotEmpty)
                           Text(expense.comment,
                               style: Theme.of(context).textTheme.bodySmall),

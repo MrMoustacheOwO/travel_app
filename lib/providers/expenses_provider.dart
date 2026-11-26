@@ -18,8 +18,9 @@ class ExpensesProvider extends ChangeNotifier {
   bool _loading = false;
 
   List<Expense> get expenses => List.unmodifiable(_expenses);
-  List<Expense> get pendingConfirmations =>
-      _expenses.where((e) => e.confirmation == ExpenseConfirmation.pending).toList();
+  List<Expense> get pendingConfirmations => _expenses
+      .where((e) => e.confirmation == ExpenseConfirmation.pending)
+      .toList();
   bool get loading => _loading;
 
   double get total => _expenses
@@ -63,6 +64,8 @@ class ExpensesProvider extends ChangeNotifier {
     List<String> participantIds = const [],
     TicketInfo? ticket,
     ExpenseConfirmation confirmation = ExpenseConfirmation.confirmed,
+    String? createdBy,
+    String scope = 'shared',
   }) async {
     if (_tripId == null) return;
     final expense = Expense(
@@ -78,6 +81,8 @@ class ExpensesProvider extends ChangeNotifier {
       participantIds: List.of(participantIds),
       ticket: ticket,
       confirmation: confirmation,
+      createdBy: createdBy,
+      scope: scope,
     );
     await _repository.create(expense);
     await loadForTrip(_tripId!);
@@ -103,7 +108,7 @@ class ExpensesProvider extends ChangeNotifier {
       }
     }
 
-    if (!activity.isCompleted || !activity.isPaid) {
+    if (!activity.isPaid) {
       if (existing != null) await deleteExpense(existing.id);
       return;
     }
@@ -119,6 +124,8 @@ class ExpensesProvider extends ChangeNotifier {
         participantIds: activity.participantIds,
         ticket: ticket,
         confirmation: ExpenseConfirmation.confirmed,
+        createdBy: activity.createdBy,
+        scope: activity.scope,
       );
     } else {
       existing
@@ -127,12 +134,15 @@ class ExpensesProvider extends ChangeNotifier {
         ..category = activity.category
         ..date = activity.dateTime
         ..participantIds = List.of(activity.participantIds)
-        ..ticket = ticket;
+        ..ticket = ticket
+        ..createdBy = activity.createdBy
+        ..scope = activity.scope;
       await updateExpense(existing);
     }
   }
 
-  Future<void> setConfirmation(String expenseId, ExpenseConfirmation status) async {
+  Future<void> setConfirmation(
+      String expenseId, ExpenseConfirmation status) async {
     final expense = _expenses.firstWhere((e) => e.id == expenseId);
     expense.confirmation = status;
     await _repository.update(expense);
